@@ -17,17 +17,20 @@ internal data class UiState(
     val snapshot: Snapshot? = null,
     val refLevel: Int? = null,
     val refTime: Long? = null,
+    val updateAlerts: Boolean = true,
     val error: String? = null
 )
 
 internal class DrainScoutViewModel(app: Application) : AndroidViewModel(app) {
 
+    private val appContext: Context = app
     private val prefs = app.getSharedPreferences("drainscout", Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
         UiState(
             refLevel = prefs.getInt(KEY_LEVEL, -1).takeIf { it >= 0 },
-            refTime = prefs.getLong(KEY_TIME, 0L).takeIf { it > 0L }
+            refTime = prefs.getLong(KEY_TIME, 0L).takeIf { it > 0L },
+            updateAlerts = UpdatePrefs.enabled(app)
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -79,6 +82,13 @@ internal class DrainScoutViewModel(app: Application) : AndroidViewModel(app) {
         val level = snap.battery?.level ?: return
         saveReference(level, snap.capturedAt)
         _state.value = _state.value.copy(refLevel = level, refTime = snap.capturedAt)
+    }
+
+    fun toggleUpdateAlerts() {
+        val enabled = !_state.value.updateAlerts
+        UpdatePrefs.setEnabled(appContext, enabled)
+        UpdateScheduler.sync(appContext, enabled)
+        _state.value = _state.value.copy(updateAlerts = enabled)
     }
 
     private fun saveReference(level: Int, time: Long) {

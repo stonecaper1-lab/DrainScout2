@@ -219,7 +219,8 @@ private fun EmptyCard(message: String) {
 internal fun DrainScoutApp(
     viewModel: DrainScoutViewModel,
     onRequestShizuku: () -> Unit,
-    onShare: (String) -> Unit
+    onShare: (String) -> Unit,
+    onToggleUpdates: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
     val clipboard = LocalClipboardManager.current
@@ -288,6 +289,10 @@ internal fun DrainScoutApp(
                         GlassButton("Copy", onClick = { clipboard.setText(AnnotatedString(report)) })
                         GlassButton("Share", onClick = { onShare(report) })
                     }
+                    GlassButton(
+                        text = if (state.updateAlerts) "Update alerts: On" else "Update alerts: Off",
+                        onClick = onToggleUpdates
+                    )
                 }
 
                 Column(
@@ -405,30 +410,95 @@ private fun OverviewTab(s: Snapshot, drain: Drain?) {
 }
 
 @Composable
+private fun VerdictChip(verdict: Verdict, label: String) {
+    val color = if (verdict == Verdict.USUAL) Mint else Coral
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(color.copy(alpha = 0.20f))
+            .border(1.dp, color.copy(alpha = 0.6f), shape)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun JudgedCard(title: String, subtitle: String, j: Judgement) {
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                color = Ink,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            VerdictChip(j.verdict, if (j.verdict == Verdict.USUAL) "Usual" else "Unusual")
+        }
+        Text(
+            text = subtitle,
+            color = InkDim,
+            fontSize = 12.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+        Text(
+            text = j.kind,
+            color = Sky,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 10.dp)
+        )
+        Text(j.description, color = Ink, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(
+            text = j.reason,
+            color = if (j.verdict == Verdict.USUAL) Mint else Coral,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+    }
+}
+
+@Composable
 private fun WakelocksTab(s: Snapshot) {
+    val judged = s.wakeLocks
+        .map { it to judgeWakeLock(it, s.wakefulness) }
+        .sortedByDescending { it.second.verdict == Verdict.UNUSUAL }
+    val unusual = judged.count { it.second.verdict == Verdict.UNUSUAL }
+
     SectionTitle("Held right now")
-    if (s.wakeLocks.isEmpty()) {
+    if (judged.isEmpty()) {
         EmptyCard("No wake locks are held at the moment of capture, or this device formats them differently.")
     } else {
         GlassCard {
-            s.wakeLocks.forEach {
-                Column(modifier = Modifier.padding(vertical = 5.dp)) {
-                    Text(it.owner, color = Ink, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${it.type} · ${it.tag}", color = InkDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                VerdictChip(Verdict.USUAL, "${judged.size - unusual} usual")
+                VerdictChip(Verdict.UNUSUAL, "$unusual unusual")
             }
+            Text(
+                text = "Screen state: ${s.wakefulness ?: "unknown"}. Limits are stricter while the screen is off.",
+                color = InkDim,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 10.dp)
+            )
+        }
+        judged.forEach { (w, j) ->
+            val held = w.heldMs?.let { formatHeld(it) } ?: "unknown"
+            JudgedCard(w.owner, "${w.type} · '${w.tag}' · held $held", j)
         }
     }
 
-    SectionTitle("Kernel wakelocks (by count)")
+    SectionTitle("Kernel wakelocks (since last charge)")
     if (s.kernelWakelocks.isEmpty()) {
         EmptyCard("No kernel wakelock lines were reported. Newer Android versions often omit them.")
     } else {
-        val max = s.kernelWakelocks.maxOf { it.count }.coerceAtLeast(1)
-        GlassCard {
-            s.kernelWakelocks.forEach {
-                BarRow(it.name, "${it.count}× · ${it.duration}", it.count.toFloat() / max, Amber)
-            }
+        s.kernelWakelocks.forEach { k ->
+            JudgedCard(k.name, "${k.count}× · ${k.duration}", judgeKernelWakelock(k))
         }
     }
 }

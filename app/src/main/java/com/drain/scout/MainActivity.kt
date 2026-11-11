@@ -1,19 +1,25 @@
 package com.drain.scout
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: DrainScoutViewModel by viewModels()
+
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -41,11 +47,20 @@ class MainActivity : ComponentActivity() {
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
         Shizuku.addBinderDeadListener(binderDeadListener)
 
+        if (UpdatePrefs.enabled(this)) {
+            UpdateScheduler.ensure(this)
+            if (!UpdatePrefs.askedPermission(this)) {
+                UpdatePrefs.setAskedPermission(this)
+                requestNotificationPermission()
+            }
+        }
+
         setContent {
             DrainScoutApp(
                 viewModel = viewModel,
                 onRequestShizuku = ::requestShizuku,
-                onShare = ::shareReport
+                onShare = ::shareReport,
+                onToggleUpdates = ::toggleUpdates
             )
         }
     }
@@ -60,6 +75,19 @@ class MainActivity : ComponentActivity() {
         Shizuku.removeBinderReceivedListener(binderReceivedListener)
         Shizuku.removeBinderDeadListener(binderDeadListener)
         super.onDestroy()
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun toggleUpdates() {
+        viewModel.toggleUpdateAlerts()
+        if (viewModel.state.value.updateAlerts) requestNotificationPermission()
     }
 
     private fun requestShizuku() {

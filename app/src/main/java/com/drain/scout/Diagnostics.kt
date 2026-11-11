@@ -13,9 +13,9 @@ internal data class Finding(val title: String, val detail: String, val severity:
 internal data class BatteryInfo(val level: Int, val tempC: Float, val status: String, val plugged: Boolean)
 internal data class DozeInfo(val deep: String, val light: String)
 internal data class Consumer(val label: String, val mah: Float)
-internal data class WakeLockEntry(val owner: String, val tag: String, val type: String)
+internal data class WakeLockEntry(val owner: String, val tag: String, val type: String, val heldMs: Long?)
 internal data class AlarmEntry(val owner: String, val wakeups: Int)
-internal data class KernelWakelock(val name: String, val duration: String, val count: Int)
+internal data class KernelWakelock(val name: String, val duration: String, val count: Int, val durationMs: Long)
 internal data class Drain(val deltaPct: Int, val minutes: Long, val perHour: Float)
 
 internal data class Snapshot(
@@ -25,7 +25,8 @@ internal data class Snapshot(
     val consumers: List<Consumer>,
     val wakeLocks: List<WakeLockEntry>,
     val alarms: List<AlarmEntry>,
-    val kernelWakelocks: List<KernelWakelock>
+    val kernelWakelocks: List<KernelWakelock>,
+    val wakefulness: String?
 )
 
 internal object DiagnosticEngine {
@@ -51,7 +52,8 @@ internal object DiagnosticEngine {
             consumers = parseConsumers(stats, uidMap),
             wakeLocks = parseWakeLocks(power, uidMap),
             alarms = parseAlarms(alarm),
-            kernelWakelocks = parseKernelWakelocks(stats)
+            kernelWakelocks = parseKernelWakelocks(stats),
+            wakefulness = first(power, """mWakefulness=(\w+)""")
         )
     }
 
@@ -128,19 +130,50 @@ internal object DiagnosticEngine {
         return out.sortedByDescending { it.mah }.take(10)
     }
 
-    private fun parseWakeLocks(power: String, uidMap: Map<Int, String>): List<WakeLockEntry> =
-        Regex("""(\w*WAKE_LOCK)\s+'([^']*)'.*?uid=(\d+)""")
-            .findAll(power)
+    /** Parses durations such as "1h2m3s4ms" or "5m 3s 120ms". Returns null if nothing matched. */
+    private fun parseDurationMs(text: String): Long? {
+        var total = 0L
+        var found = false
+        Regex("""(\d+)(ms|d|h|m|s)""").findAll(text).forEach { m ->
+            val n = m.groupValues[1].toLongOrNull() ?: return@forEach
+            total += when (m.groupValues[2]) {
+                "d" -> n * 86_400_000L
+                "h" -> n * 3_600_000L
+                "m" -> n * 60_000L
+                "s" -> n * 1_000L
+                else -> n
+            }
+            found = true
+        }
+        return if (found) total else null
+    }
+
+    /**
+     * Example line: PARTIAL_WAKE_LOCK 'tag' ACQ=-1m5s (uid=1000 pid=900 ws=WorkSource{10123})
+     * When the system holds a lock on behalf of an app, the WorkSource uid is the real owner.
+     */
+    private fun parseWakeLocks(power: String, uidMap: Map<Int, String>): List<WakeLockEntry> {
+        val head = Regex("""(\w*WAKE_LOCK)\s+'([^']*)'(.*)""")
+        val uidRx = Regex("""uid=(\d+)""")
+        val wsRx = Regex("""ws=WorkSource\{(\d+)""")
+        val acqRx = Regex("""ACQ=(\S+)""")
+        return head.findAll(power)
             .map { m ->
+                val rest = m.groupValues[3]
+                val uid = uidRx.find(rest)?.groupValues?.get(1)
+                val ws = wsRx.find(rest)?.groupValues?.get(1)
+                val acq = acqRx.find(rest)?.groupValues?.get(1)
                 WakeLockEntry(
-                    owner = resolveOwner(m.groupValues[3], uidMap),
+                    owner = resolveOwner(ws ?: uid ?: "unknown", uidMap),
                     tag = m.groupValues[2],
-                    type = m.groupValues[1].removeSuffix("_WAKE_LOCK").ifEmpty { "WAKE" }
+                    type = m.groupValues[1].removeSuffix("_WAKE_LOCK").ifEmpty { "WAKE" },
+                    heldMs = acq?.let { parseDurationMs(it) }
                 )
             }
             .distinct()
-            .take(30)
+            .take(40)
             .toList()
+    }
 
     private fun parseAlarms(alarm: String): List<AlarmEntry> {
         val rx = Regex(
@@ -163,10 +196,15 @@ internal object DiagnosticEngine {
             .findAll(stats)
             .mapNotNull { m ->
                 val count = m.groupValues[3].toIntOrNull() ?: return@mapNotNull null
-                KernelWakelock(m.groupValues[1], m.groupValues[2], count)
+                KernelWakelock(
+                    name = m.groupValues[1],
+                    duration = m.groupValues[2],
+                    count = count,
+                    durationMs = parseDurationMs(m.groupValues[2]) ?: 0L
+                )
             }
-            .sortedByDescending { it.count }
-            .take(10)
+            .sortedByDescending { it.durationMs }
+            .take(12)
             .toList()
 
     // ------------------------------------------------------------ shell
@@ -263,13 +301,33 @@ internal fun buildFindings(s: Snapshot, drain: Drain?): List<Finding> = buildLis
         )
     }
 
-    val partial = s.wakeLocks.filter { it.type == "PARTIAL" }
-    if (partial.isNotEmpty()) {
-        val owners = partial.map { it.owner }.distinct().take(3).joinToString(", ")
+    val judged = s.wakeLocks.map { it to judgeWakeLock(it, s.wakefulness) }
+    val unusual = judged.filter { it.second.verdict == Verdict.UNUSUAL }
+    if (unusual.isNotEmpty()) {
+        val top = unusual.take(3).joinToString { "${it.first.owner} (${it.second.kind})" }
         add(
             Finding(
-                "${partial.size} partial wake lock(s) held now",
-                "Held by $owners. Brief holds are normal, repeats while idle are not.",
+                "${unusual.size} unusual wake lock(s)",
+                "Worst offenders: $top. The Wakelocks tab explains each one.",
+                Severity.ALERT
+            )
+        )
+    } else if (judged.isNotEmpty()) {
+        add(
+            Finding(
+                "Wake locks look normal",
+                "${judged.size} held right now, all within the usual range for their kind.",
+                Severity.INFO
+            )
+        )
+    }
+
+    val kernelUnusual = s.kernelWakelocks.filter { judgeKernelWakelock(it).verdict == Verdict.UNUSUAL }
+    if (kernelUnusual.isNotEmpty()) {
+        add(
+            Finding(
+                "${kernelUnusual.size} heavy kernel wakelock(s)",
+                "Led by ${kernelUnusual.first().name}. Totals are since the last full charge.",
                 Severity.WATCH
             )
         )
@@ -309,6 +367,7 @@ internal fun buildReport(s: Snapshot, drain: Drain?): String = buildString {
     s.battery?.let {
         appendLine("Battery: ${it.level}% (${it.status}), ${"%.1f".format(it.tempC)} C")
     }
+    appendLine("Screen state: ${s.wakefulness ?: "unknown"}")
     if (drain != null) {
         appendLine("Since reference: ${-drain.deltaPct}% over ${formatDuration(drain.minutes)} (${"%.1f".format(drain.perHour)} %/h)")
     }
@@ -321,10 +380,26 @@ internal fun buildReport(s: Snapshot, drain: Drain?): String = buildString {
     if (s.consumers.isEmpty()) appendLine("none parsed") else s.consumers.forEach { appendLine("${"%.1f".format(it.mah)}  ${it.label}") }
     appendLine()
     appendLine("== Wake locks held now ==")
-    if (s.wakeLocks.isEmpty()) appendLine("none parsed") else s.wakeLocks.forEach { appendLine("${it.type}  ${it.owner}  '${it.tag}'") }
+    if (s.wakeLocks.isEmpty()) {
+        appendLine("none parsed")
+    } else {
+        s.wakeLocks.forEach { w ->
+            val j = judgeWakeLock(w, s.wakefulness)
+            val held = w.heldMs?.let { formatHeld(it) } ?: "unknown"
+            appendLine("[${j.verdict}] ${w.owner}  ${w.type}  '${w.tag}'  held $held")
+            appendLine("    ${j.kind}: ${j.reason}")
+        }
+    }
     appendLine()
     appendLine("== Kernel wakelocks ==")
-    if (s.kernelWakelocks.isEmpty()) appendLine("none parsed") else s.kernelWakelocks.forEach { appendLine("${it.count}x  ${it.duration}  ${it.name}") }
+    if (s.kernelWakelocks.isEmpty()) {
+        appendLine("none parsed")
+    } else {
+        s.kernelWakelocks.forEach { k ->
+            val j = judgeKernelWakelock(k)
+            appendLine("[${j.verdict}] ${k.count}x  ${k.duration}  ${k.name}")
+        }
+    }
     appendLine()
     appendLine("== Alarm wakeups ==")
     if (s.alarms.isEmpty()) appendLine("none parsed") else s.alarms.forEach { appendLine("${it.wakeups}  ${it.owner}") }

@@ -79,7 +79,7 @@ Requires JDK 17 and Gradle 8.9+.
 
 ## 🔒 Privacy
 
-🚫 No internet permission. Nothing leaves your device unless you copy or share a report yourself.
+🌐 The only network use is an optional update check against the GitHub releases API (switch it off with the Update alerts button). Nothing else leaves your device unless you copy or share a report yourself.
 
 ## 🤝 Contributing
 
