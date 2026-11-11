@@ -52,13 +52,13 @@ DrainScout uses [Shizuku](https://shizuku.rikka.app/) to run read-only `dumpsys`
 
 ## 📥 Install
 
-1. ⬇️ Download `DrainScout-debug.apk` from the [latest release](../../releases/latest)
+1. ⬇️ Download `DrainScout.apk` from the [latest release](../../releases/latest)
 2. 📦 Install it (allow installs from your browser or file manager if asked)
 3. ▶️ Start Shizuku, then open DrainScout
 4. 🔗 Tap **Connect Shizuku** and allow the permission
 5. 📸 Tap **Capture baseline**
 
-> 🔏 The APK is a **debug build** signed with a debug key. Updating to a future release signed with a different key requires uninstalling first.
+> 🔏 Releases are signed with a fixed project key, so updates install over each other. Coming from v1.0? Uninstall it once first.
 
 ## 🛠️ Build from source
 

@@ -12,13 +12,32 @@ android {
         applicationId = "com.drain.scout"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "2.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+        resourceConfigurations += setOf("en")
+    }
+
+    signingConfigs {
+        create("stable") {
+            storeFile = file("drainscout.keystore")
+            storePassword = "drainscout"
+            keyAlias = "drainscout"
+            keyPassword = "drainscout"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("stable")
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("stable")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
@@ -33,6 +52,23 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/*.version",
+                "/META-INF/*.kotlin_module",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            )
+        }
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 }
 
