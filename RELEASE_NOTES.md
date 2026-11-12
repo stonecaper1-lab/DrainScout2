@@ -1,24 +1,26 @@
-## 🔋 DrainScout v1.2.0
+## 🔋 DrainScout v1.3.0
 
-🔬 **Deep wakelock analysis** and 🔔 **update alerts**.
+🧰 **Device info**, ℹ️ **About page**, and 🛡️ **reliability fixes**.
 
-### 🔒 Wakelocks, usual or unusual
-- 🏷️ Every wake lock held right now is marked **Usual** or **Unusual**
-- 📖 Each one gets a plain-language description of what it is and why apps hold it
-- ⏱️ Shows how long it has been held, and why it was judged the way it was
-- 🎯 Locks held by the system on behalf of an app are attributed to the real app
-- 🌙 Uses the screen state: the same lock is judged more strictly while the screen is off
-- 🧩 Recognises FCM push, alarms, JobScheduler/WorkManager jobs, location and audio locks
-- 🐧 Kernel wakelocks get descriptions too, and heavy ones are flagged
-- 📚 See `docs/WAKELOCKS.md` for the rules and their sources
+### 📱 New: Device tab
+- 🧾 Model, codename, SoC, Android version, security patch, kernel
+- ⚙️ CPU architecture, core count and max clocks
+- 🧠 RAM and storage, with free space
+- 🖥️ Resolution, density and supported refresh rates
+- 🔋 Battery level, health, voltage, temperature, charge cycles (Android 14+), remaining charge and an estimated full capacity
+- 💤 Uptime, CPU awake time and deep-sleep share
+- 🛡️ Battery saver, Doze, sensors, and Shizuku status
 
-### 🔔 Update alerts
-- 📲 A normal system notification when a new release is published, even if the app is closed
-- ⏰ Checked about every 6 hours, and again after a reboot
-- 🎚️ Turn it off any time with the **Update alerts** button
-- 🌐 Adds the Internet permission, used only to ask GitHub for the latest release
+### ℹ️ New: About tab
+- ✍️ Version, signature, privacy summary and project links
+
+### 🛠️ Reliability
+- 🔎 If a capture returns nothing, the app now shows the actual reason instead of a generic message
+- 🧱 Update alerts can no longer crash the app if scheduling fails
+- 🔧 Shizuku command lookup no longer depends on one exact method signature
+- 📦 Release builds are unminified again until a minified build is verified on a device
+- 🧪 Wake lock parsing and verdict rules were run against sample `dumpsys` output
 
 ### 📝 Notes
-- 🔑 Same signing key as v1.1.0, so this installs over it
-- 🧪 The usual/unusual limits are DrainScout heuristics, not official Android thresholds
+- 🔑 Same signing key as v1.1.0 and v1.2.0, so it installs over them
 - 🛡️ Needs Android 8.0+ and Shizuku running

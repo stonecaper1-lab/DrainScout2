@@ -38,6 +38,7 @@ internal object DiagnosticEngine {
     }
 
     fun capture(): Snapshot {
+        lastShellError = null
         val uidMap = loadUidMap()
         val battery = shell("dumpsys", "battery")
         val power = shell("dumpsys", "power")
@@ -209,18 +210,19 @@ internal object DiagnosticEngine {
 
     // ------------------------------------------------------------ shell
 
+    /** Why the last shell command failed. Shown in the UI so failures are never silent. */
+    @Volatile
+    var lastShellError: String? = null
+
     /**
      * Shizuku.newProcess is private since API 13.1, so it is called reflectively.
      * Stdout is drained on its own thread so large dumpsys output cannot fill the pipe.
-     * Returns an empty string on any failure.
+     * Returns an empty string on any failure and records the reason in lastShellError.
      */
     private fun shell(vararg args: String): String = try {
-        val method = Shizuku::class.java.getDeclaredMethod(
-            "newProcess",
-            Array<String>::class.java,
-            Array<String>::class.java,
-            String::class.java
-        )
+        val method = Shizuku::class.java.declaredMethods
+            .firstOrNull { it.name == "newProcess" && it.parameterTypes.size == 3 }
+            ?: error("Shizuku.newProcess was not found in this Shizuku API version")
         method.isAccessible = true
         val process = method.invoke(null, arrayOf(*args), null, null) as Process
 
@@ -238,7 +240,9 @@ internal object DiagnosticEngine {
         if (!completed) process.destroy()
         reader.join(3_000)
         output
-    } catch (_: Throwable) {
+    } catch (t: Throwable) {
+        val root = t.cause ?: t
+        lastShellError = "${root.javaClass.simpleName}: ${root.message}"
         ""
     }
 }

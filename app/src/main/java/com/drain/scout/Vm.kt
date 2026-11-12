@@ -66,7 +66,7 @@ internal class DrainScoutViewModel(app: Application) : AndroidViewModel(app) {
                     snapshot = snap,
                     refLevel = refLevel,
                     refTime = refTime,
-                    error = if (level == null) "No data came back. Is Shizuku still running?" else null
+                    error = if (level == null) "No data came back. ${DiagnosticEngine.lastShellError ?: "Is Shizuku still running?"}" else null
                 )
             } catch (t: Throwable) {
                 _state.value = _state.value.copy(

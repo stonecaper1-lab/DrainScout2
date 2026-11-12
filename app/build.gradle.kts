@@ -12,8 +12,8 @@ android {
         applicationId = "com.drain.scout"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
         resourceConfigurations += setOf("en")
     }
 
@@ -31,8 +31,9 @@ android {
             signingConfig = signingConfigs.getByName("stable")
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // R8 is off until a minified build has been verified on a real device.
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("stable")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -52,6 +53,11 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     packaging {

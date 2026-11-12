@@ -40,3 +40,9 @@ A single capture shows a moment in time. One Unusual lock is a lead, not a verdi
 - Android Developers: Excessive partial wake locks
 - Android Developers: Identify and optimize wake lock use cases
 - Android Developers blog: Battery technical quality enforcement
+
+## Awake is not the same as screen on
+
+A screen that is off does not mean the CPU is asleep. "Awake" describes the CPU's sleep state, and wake locks are what keep it awake. This is why DrainScout reads the screen state (`mWakefulness`) and judges the same lock more strictly while the screen is off. A lot of "stay awake" time alongside a lot of foreground CPU time is usually just the phone being used. The same wake lock time with no foreground activity is the pattern worth investigating.
+
+Source: a community explainer thread on Android Central, "Demystifying wakelocks". The XDA "total newbs guide to wakelocks" could not be retrieved, so nothing here is taken from it.

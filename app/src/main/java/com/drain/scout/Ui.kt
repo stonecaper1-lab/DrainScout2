@@ -38,9 +38,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,7 +56,7 @@ private val Amber = Color(0xFFFFCF78)
 private val Coral = Color(0xFFFF9A9A)
 private val Sky = Color(0xFF9CC8FF)
 
-private val TAB_TITLES = listOf("Overview", "Wakelocks", "Alarms", "Doze", "Report")
+private val TAB_TITLES = listOf("Overview", "Wakelocks", "Alarms", "Doze", "Device", "Report", "About")
 
 // ---------------------------------------------------------------- glass kit
 
@@ -132,7 +136,7 @@ private fun GlassButton(
 @Composable
 private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit) {
     val shape = RoundedCornerShape(30.dp)
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -141,24 +145,25 @@ private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit) {
             .border(1.dp, Brush.verticalGradient(listOf(Color(0x99FFFFFF), Color(0x1AFFFFFF))), shape)
             .padding(4.dp)
     ) {
-        TAB_TITLES.forEachIndexed { index, title ->
-            val on = index == selected
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(if (on) Color(0x4D8AE6C9) else Color.Transparent)
-                    .clickable { onSelect(index) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    color = if (on) Ink else InkDim,
-                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal
-                )
+        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            TAB_TITLES.forEachIndexed { index, title ->
+                val on = index == selected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(if (on) Color(0x4D8AE6C9) else Color.Transparent)
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        color = if (on) Ink else InkDim,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
             }
         }
     }
@@ -313,7 +318,11 @@ internal fun DrainScoutApp(
                         )
                     }
 
-                    if (snapshot == null) {
+                    if (tab == 4) {
+                        DeviceTab()
+                    } else if (tab == 6) {
+                        AboutTab(state.updateAlerts)
+                    } else if (snapshot == null) {
                         EmptyCard("No capture yet. Connect Shizuku, then tap Capture. The first capture also becomes your reference point; capture again later to see the drain rate.")
                     } else {
                         when (tab) {
@@ -532,4 +541,107 @@ private fun DozeTab(s: Snapshot) {
         Text(d.light, color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
     }
     EmptyCard("IDLE means the system is deeply idling. ACTIVE means it is not. A phone that sits ACTIVE for hours while the screen is off is worth investigating.")
+}
+
+@Composable
+private fun InfoLine(row: InfoRow) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(row.label, color = InkDim, fontSize = 13.sp, modifier = Modifier.weight(0.4f))
+        Text(
+            text = row.value,
+            color = Ink,
+            fontSize = 13.sp,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.6f)
+        )
+    }
+}
+
+@Composable
+private fun DeviceTab() {
+    val context = LocalContext.current
+    var refresh by remember { mutableIntStateOf(0) }
+    val sections = remember(refresh) { collectSystemInfo(context) }
+
+    GlassButton("Refresh", onClick = { refresh++ })
+    sections.forEach { section ->
+        SectionTitle(section.title)
+        GlassCard {
+            section.rows.forEach { InfoLine(it) }
+        }
+    }
+}
+
+@Composable
+private fun AboutTab(updateAlerts: Boolean) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val version = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+            .getOrNull()
+            .orEmpty()
+    }
+    val open: (String) -> Unit = { url ->
+        try {
+            uriHandler.openUri(url)
+        } catch (_: Throwable) {
+        }
+    }
+
+    GlassCard {
+        Text("DrainScout", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("Version $version", color = InkDim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(
+            text = "Designed with care, calibrated for 15 and 9",
+            color = Mint,
+            fontSize = 15.sp,
+            fontStyle = FontStyle.Italic,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 14.dp)
+        )
+    }
+
+    SectionTitle("What it does")
+    GlassCard {
+        Text(
+            "Reads battery, power, alarm and Doze state through Shizuku, then points at the apps and wake locks most likely to be draining your battery. Capture twice and compare to see a drain rate since your reference point.",
+            color = Ink,
+            fontSize = 14.sp
+        )
+    }
+
+    SectionTitle("How wake locks are judged")
+    GlassCard {
+        Text(
+            "Each wake lock is matched to a known kind (push, alarm, job, location, audio) and compared with how long that kind is normally held. Limits are tighter while the screen is off. They are DrainScout heuristics, not official Android thresholds. A single capture is a lead, not a verdict.",
+            color = Ink,
+            fontSize = 14.sp
+        )
+    }
+
+    SectionTitle("Privacy")
+    GlassCard {
+        Text(
+            text = "Nothing leaves your device. The only network request is an update check against the GitHub releases API, currently " +
+                (if (updateAlerts) "on" else "off") +
+                ". Switch it with the Update alerts button.",
+            color = Ink,
+            fontSize = 14.sp
+        )
+    }
+
+    SectionTitle("Project")
+    GlassCard {
+        Text("Open source. Built on Shizuku, inspired by BetterBatteryStats.", color = Ink, fontSize = 14.sp)
+        Row(
+            modifier = Modifier.padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            GlassButton("Source code", onClick = { open("https://github.com/stonecaper1-lab/DrainScout2") })
+            GlassButton("Releases", onClick = { open("https://github.com/stonecaper1-lab/DrainScout2/releases") })
+        }
+    }
 }
