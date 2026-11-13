@@ -1,26 +1,8 @@
-## 🔋 DrainScout v1.3.0
+## DrainScout v1.4.0
 
-🧰 **Device info**, ℹ️ **About page**, and 🛡️ **reliability fixes**.
-
-### 📱 New: Device tab
-- 🧾 Model, codename, SoC, Android version, security patch, kernel
-- ⚙️ CPU architecture, core count and max clocks
-- 🧠 RAM and storage, with free space
-- 🖥️ Resolution, density and supported refresh rates
-- 🔋 Battery level, health, voltage, temperature, charge cycles (Android 14+), remaining charge and an estimated full capacity
-- 💤 Uptime, CPU awake time and deep-sleep share
-- 🛡️ Battery saver, Doze, sensors, and Shizuku status
-
-### ℹ️ New: About tab
-- ✍️ Version, signature, privacy summary and project links
-
-### 🛠️ Reliability
-- 🔎 If a capture returns nothing, the app now shows the actual reason instead of a generic message
-- 🧱 Update alerts can no longer crash the app if scheduling fails
-- 🔧 Shizuku command lookup no longer depends on one exact method signature
-- 📦 Release builds are unminified again until a minified build is verified on a device
-- 🧪 Wake lock parsing and verdict rules were run against sample `dumpsys` output
-
-### 📝 Notes
-- 🔑 Same signing key as v1.1.0 and v1.2.0, so it installs over them
-- 🛡️ Needs Android 8.0+ and Shizuku running
+- **Fixed:** "No data came back / process hasn't exited". Commands now run through a Shizuku user service (same approach as wakelogs), with a safe reflection fallback.
+- **Redesign:** lighter plain-Views UI with liquid-glass styling, much smaller APK (R8, no Compose/AndroidX).
+- Scrollable tab bar so six tabs fit small screens.
+- Amber notice when only part of the data could be read.
+- Device tab shows the command channel and last shell error.
+- Same signing key: installs over v1.1 to v1.3.

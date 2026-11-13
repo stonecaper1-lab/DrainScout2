@@ -25,6 +25,7 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk DrainScout.apk
           ls -l DrainScout.apk
+          echo "APK size: $(stat -c %s DrainScout.apk) bytes" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: DrainScout-apk

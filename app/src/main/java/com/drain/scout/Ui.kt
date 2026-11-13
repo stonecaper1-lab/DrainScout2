@@ -1,647 +1,549 @@
 package com.drain.scout
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RadialGradient
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.text.TextUtils
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
 
-private val Ink = Color(0xFFE9F4FF)
-private val InkDim = Color(0xFFA9C4DB)
-private val Mint = Color(0xFF8AE6C9)
-private val Amber = Color(0xFFFFCF78)
-private val Coral = Color(0xFFFF9A9A)
-private val Sky = Color(0xFF9CC8FF)
+private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
-private val TAB_TITLES = listOf("Overview", "Wakelocks", "Alarms", "Doze", "Device", "Report", "About")
-
-// ---------------------------------------------------------------- glass kit
-
-/** Static glow background. Deliberately not animated: a battery tool should not burn battery. */
-@Composable
-private fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF040A12), Color(0xFF0B1D2C))))
-            .drawBehind {
-                glow(Offset(size.width * 0.15f, size.height * 0.10f), size.minDimension * 0.75f, Color(0x558AE6C9))
-                glow(Offset(size.width * 0.95f, size.height * 0.40f), size.minDimension * 0.70f, Color(0x449CC8FF))
-                glow(Offset(size.width * 0.20f, size.height * 0.90f), size.minDimension * 0.80f, Color(0x44B48CFF))
-            },
-        content = content
-    )
+internal object Pal {
+    val INK = 0xFFE9F4FF.toInt()
+    val DIM = 0xFFA9C4DB.toInt()
+    val MINT = 0xFF8AE6C9.toInt()
+    val AMBER = 0xFFFFCF78.toInt()
+    val CORAL = 0xFFFF9A9A.toInt()
+    val SKY = 0xFF9CC8FF.toInt()
+    val VIOLET = 0xFFB48CFF.toInt()
+    val BG = 0xFF050B14.toInt()
 }
 
-private fun DrawScope.glow(center: Offset, radius: Float, color: Color) {
-    drawCircle(
-        brush = Brush.radialGradient(colors = listOf(color, Color.Transparent), center = center, radius = radius),
-        radius = radius,
-        center = center
-    )
+internal fun withAlpha(alpha: Int, color: Int): Int = (alpha shl 24) or (color and 0xFFFFFF)
+
+internal fun Context.dp(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
+
+// ------------------------------------------------------------------ custom views
+
+/** Static glow background. Not animated on purpose: a battery tool should not burn battery. */
+internal class GlowView(context: Context) : View(context) {
+    private class Blob(val x: Float, val y: Float, val r: Float, val shader: RadialGradient)
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var blobs: List<Blob> = emptyList()
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val s = minOf(w, h).toFloat()
+        blobs = listOf(
+            blob(w * 0.12f, h * 0.06f, s * 0.95f, withAlpha(0x70, Pal.MINT)),
+            blob(w * 0.98f, h * 0.42f, s * 0.80f, withAlpha(0x55, Pal.SKY)),
+            blob(w * 0.15f, h * 0.92f, s * 0.95f, withAlpha(0x55, Pal.VIOLET))
+        )
+    }
+
+    private fun blob(x: Float, y: Float, r: Float, color: Int): Blob =
+        Blob(x, y, r, RadialGradient(x, y, r, color, color and 0x00FFFFFF, Shader.TileMode.CLAMP))
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawColor(Pal.BG)
+        for (b in blobs) {
+            paint.shader = b.shader
+            canvas.drawCircle(b.x, b.y, b.r, paint)
+        }
+    }
 }
 
-@Composable
-private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(26.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Brush.linearGradient(listOf(Color(0x38FFFFFF), Color(0x0FFFFFFF))))
-            .border(
-                1.dp,
-                Brush.linearGradient(listOf(Color(0x99FFFFFF), Color(0x14FFFFFF), Color(0x4DFFFFFF))),
-                shape
-            )
-            .padding(18.dp),
-        content = content
-    )
+/** Battery ring: arc for the level, percentage in the middle, state underneath. */
+internal class RingView(context: Context) : View(context) {
+    var percent: Int = 0
+        set(value) {
+            field = value
+            invalidate()
+        }
+    var accent: Int = Pal.MINT
+        set(value) {
+            field = value
+            invalidate()
+        }
+    var caption: String = ""
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = 0x26FFFFFF
+    }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val big = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Pal.INK
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Pal.DIM
+        textAlign = Paint.Align.CENTER
+    }
+    private val box = RectF()
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val stroke = w * 0.085f
+        track.strokeWidth = stroke
+        arc.strokeWidth = stroke
+        arc.color = accent
+        val inset = stroke / 2f + 1f
+        box.set(inset, inset, w - inset, h - inset)
+        canvas.drawArc(box, 0f, 360f, false, track)
+        canvas.drawArc(box, -90f, 360f * percent.coerceIn(0, 100) / 100f, false, arc)
+        big.textSize = w * 0.27f
+        small.textSize = w * 0.105f
+        val cy = h / 2f
+        canvas.drawText("$percent%", w / 2f, cy - (big.ascent() + big.descent()) / 2f - w * 0.06f, big)
+        canvas.drawText(caption, w / 2f, cy + w * 0.22f, small)
+    }
 }
 
-@Composable
-private fun GlassButton(
+// ------------------------------------------------------------------ building blocks
+
+internal fun label(
+    ctx: Context,
+    text: CharSequence,
+    sp: Float = 14f,
+    color: Int = Pal.INK,
+    bold: Boolean = false,
+    mono: Boolean = false
+): TextView {
+    val v = TextView(ctx)
+    v.text = text
+    v.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+    v.setTextColor(color)
+    if (bold) v.typeface = Typeface.DEFAULT_BOLD
+    if (mono) v.typeface = Typeface.MONOSPACE
+    return v
+}
+
+internal fun glass(ctx: Context, radiusDp: Int, strong: Boolean = false): GradientDrawable {
+    val g = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(if (strong) 0x4DFFFFFF else 0x33FFFFFF, 0x0DFFFFFF)
+    )
+    g.cornerRadius = ctx.dp(radiusDp).toFloat()
+    g.setStroke(ctx.dp(1), 0x45FFFFFF)
+    return g
+}
+
+internal fun card(ctx: Context): LinearLayout {
+    val c = LinearLayout(ctx)
+    c.orientation = LinearLayout.VERTICAL
+    c.background = glass(ctx, 24)
+    val p = ctx.dp(18)
+    c.setPadding(p, p, p, p)
+    return c
+}
+
+internal fun LinearLayout.addBlock(v: View, bottomDp: Int = 12) {
+    val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+    lp.bottomMargin = context.dp(bottomDp)
+    addView(v, lp)
+}
+
+internal fun LinearLayout.section(text: String) {
+    val t = label(context, text, 13f, Pal.DIM, bold = true)
+    t.setPadding(context.dp(6), context.dp(8), 0, context.dp(8))
+    addView(t)
+}
+
+internal fun pill(
+    ctx: Context,
     text: String,
     primary: Boolean = false,
-    enabled: Boolean = true,
+    sp: Float = 14f,
+    hPadDp: Int = 14,
     onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(22.dp)
+): TextView {
     val fill = if (primary) {
-        listOf(Color(0x808AE6C9), Color(0x338AE6C9))
+        intArrayOf(withAlpha(0xA0, Pal.MINT), withAlpha(0x45, Pal.MINT))
     } else {
-        listOf(Color(0x40FFFFFF), Color(0x14FFFFFF))
+        intArrayOf(0x44FFFFFF, 0x18FFFFFF)
     }
-    Box(
-        modifier = Modifier
-            .clip(shape)
-            .background(Brush.verticalGradient(fill))
-            .border(1.dp, Brush.verticalGradient(listOf(Color(0x99FFFFFF), Color(0x22FFFFFF))), shape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 11.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            color = if (enabled) Ink else InkDim,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
+    val shape = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, fill)
+    shape.cornerRadius = ctx.dp(22).toFloat()
+    shape.setStroke(ctx.dp(1), 0x55FFFFFF)
+    val v = TextView(ctx)
+    v.text = text
+    v.gravity = Gravity.CENTER
+    v.maxLines = 1
+    v.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+    v.setTextColor(Pal.INK)
+    v.typeface = Typeface.DEFAULT_BOLD
+    v.setPadding(ctx.dp(hPadDp), ctx.dp(11), ctx.dp(hPadDp), ctx.dp(11))
+    v.background = RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), shape, null)
+    v.isClickable = true
+    v.setOnClickListener { onClick() }
+    return v
 }
 
-@Composable
-private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit) {
-    val shape = RoundedCornerShape(30.dp)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x1AFFFFFF))))
-            .border(1.dp, Brush.verticalGradient(listOf(Color(0x99FFFFFF), Color(0x1AFFFFFF))), shape)
-            .padding(4.dp)
-    ) {
-        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            TAB_TITLES.forEachIndexed { index, title ->
-                val on = index == selected
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(if (on) Color(0x4D8AE6C9) else Color.Transparent)
-                        .clickable { onSelect(index) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = title,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        color = if (on) Ink else InkDim,
-                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-    }
+internal fun chip(ctx: Context, text: String, color: Int): TextView {
+    val bg = GradientDrawable()
+    bg.cornerRadius = ctx.dp(12).toFloat()
+    bg.setColor(withAlpha(0x33, color))
+    bg.setStroke(ctx.dp(1), withAlpha(0x99, color))
+    val v = label(ctx, text, 12f, color, bold = true)
+    v.setPadding(ctx.dp(10), ctx.dp(4), ctx.dp(10), ctx.dp(4))
+    v.background = bg
+    return v
 }
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        color = InkDim,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 6.dp, top = 6.dp)
-    )
+internal fun dot(ctx: Context, color: Int, sizeDp: Int = 8): View {
+    val g = GradientDrawable()
+    g.shape = GradientDrawable.OVAL
+    g.setColor(color)
+    val v = View(ctx)
+    v.background = g
+    v.layoutParams = LinearLayout.LayoutParams(ctx.dp(sizeDp), ctx.dp(sizeDp))
+    return v
 }
 
-@Composable
-private fun BarRow(label: String, value: String, fraction: Float, color: Color) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                text = label,
-                color = Ink,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Text(text = value, color = InkDim, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp)
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(Color(0x22FFFFFF))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction.coerceIn(0.03f, 1f))
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(color)
-            )
-        }
-    }
+internal fun barRow(ctx: Context, name: String, value: String, fraction: Float, color: Int): View {
+    val box = LinearLayout(ctx)
+    box.orientation = LinearLayout.VERTICAL
+    box.setPadding(0, ctx.dp(5), 0, ctx.dp(5))
+
+    val top = LinearLayout(ctx)
+    top.orientation = LinearLayout.HORIZONTAL
+    val n = label(ctx, name, 14f)
+    n.maxLines = 1
+    n.ellipsize = TextUtils.TruncateAt.END
+    top.addView(n, LinearLayout.LayoutParams(0, WRAP, 1f))
+    val v = label(ctx, value, 13f, Pal.DIM)
+    v.setPadding(ctx.dp(8), 0, 0, 0)
+    top.addView(v)
+    box.addView(top)
+
+    val f = fraction.coerceIn(0.03f, 1f)
+    val trackBg = GradientDrawable()
+    trackBg.cornerRadius = ctx.dp(3).toFloat()
+    trackBg.setColor(0x22FFFFFF)
+    val track = LinearLayout(ctx)
+    track.orientation = LinearLayout.HORIZONTAL
+    track.background = trackBg
+    val fillBg = GradientDrawable()
+    fillBg.cornerRadius = ctx.dp(3).toFloat()
+    fillBg.setColor(color)
+    val fill = View(ctx)
+    fill.background = fillBg
+    track.addView(fill, LinearLayout.LayoutParams(0, ctx.dp(6), f))
+    track.addView(View(ctx), LinearLayout.LayoutParams(0, ctx.dp(6), 1f - f))
+    val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+    lp.topMargin = ctx.dp(4)
+    box.addView(track, lp)
+    return box
 }
 
-@Composable
-private fun EmptyCard(message: String) {
-    GlassCard { Text(message, color = InkDim, fontSize = 14.sp) }
+internal fun infoLine(ctx: Context, row: InfoRow): View {
+    val r = LinearLayout(ctx)
+    r.orientation = LinearLayout.HORIZONTAL
+    r.setPadding(0, ctx.dp(5), 0, ctx.dp(5))
+    r.addView(label(ctx, row.label, 13f, Pal.DIM), LinearLayout.LayoutParams(0, WRAP, 0.4f))
+    val valueView = label(ctx, row.value, 13f)
+    valueView.gravity = Gravity.END
+    r.addView(valueView, LinearLayout.LayoutParams(0, WRAP, 0.6f))
+    return r
 }
 
-// ---------------------------------------------------------------- screens
-
-@Composable
-internal fun DrainScoutApp(
-    viewModel: DrainScoutViewModel,
-    onRequestShizuku: () -> Unit,
-    onShare: (String) -> Unit,
-    onToggleUpdates: () -> Unit
-) {
-    val state by viewModel.state.collectAsState()
-    val clipboard = LocalClipboardManager.current
-    var tab by remember { mutableIntStateOf(0) }
-
-    val snapshot = state.snapshot
-    val drain = remember(snapshot, state.refLevel, state.refTime) {
-        val level = snapshot?.battery?.level
-        val refLevel = state.refLevel
-        val refTime = state.refTime
-        if (snapshot != null && level != null && refLevel != null && refTime != null) {
-            drainSince(refLevel, refTime, level, snapshot.capturedAt)
-        } else {
-            null
-        }
-    }
-    val report = remember(snapshot, drain) { snapshot?.let { buildReport(it, drain) }.orEmpty() }
-
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            background = Color(0xFF040A12),
-            surface = Color(0xFF040A12),
-            onBackground = Ink,
-            onSurface = Ink,
-            primary = Mint,
-            onPrimary = Color(0xFF040A12)
-        )
-    ) {
-        GlassBackground {
-            Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-                Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp)) {
-                    Text("DrainScout", color = Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (state.hasPermission) Mint else Amber)
-                        )
-                        Text(
-                            text = if (state.hasPermission) "Shizuku connected" else "Shizuku permission needed",
-                            color = InkDim,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (!state.hasPermission) {
-                        GlassButton("Connect Shizuku", onClick = onRequestShizuku)
-                    }
-                    GlassButton(
-                        text = if (state.loading) "Capturing…" else "Capture",
-                        primary = true,
-                        enabled = !state.loading,
-                        onClick = viewModel::capture
-                    )
-                    if (snapshot != null) {
-                        GlassButton("Set reference", onClick = viewModel::setReference)
-                        GlassButton("Copy", onClick = { clipboard.setText(AnnotatedString(report)) })
-                        GlassButton("Share", onClick = { onShare(report) })
-                    }
-                    GlassButton(
-                        text = if (state.updateAlerts) "Update alerts: On" else "Update alerts: Off",
-                        onClick = onToggleUpdates
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    state.error?.let { Text(it, color = Coral, fontSize = 13.sp) }
-                    state.refTime?.let {
-                        Text(
-                            "Reference: ${state.refLevel}% at ${formatTime(it)}",
-                            color = InkDim,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(start = 6.dp)
-                        )
-                    }
-
-                    if (tab == 4) {
-                        DeviceTab()
-                    } else if (tab == 6) {
-                        AboutTab(state.updateAlerts)
-                    } else if (snapshot == null) {
-                        EmptyCard("No capture yet. Connect Shizuku, then tap Capture. The first capture also becomes your reference point; capture again later to see the drain rate.")
-                    } else {
-                        when (tab) {
-                            0 -> OverviewTab(snapshot, drain)
-                            1 -> WakelocksTab(snapshot)
-                            2 -> AlarmsTab(snapshot)
-                            3 -> DozeTab(snapshot)
-                            else -> GlassCard {
-                                Text(
-                                    text = report,
-                                    color = Ink,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                GlassTabBar(selected = tab, onSelect = { tab = it })
-            }
-        }
-    }
+internal fun emptyCard(ctx: Context, message: String): View {
+    val c = card(ctx)
+    c.addView(label(ctx, message, 14f, Pal.DIM))
+    return c
 }
 
-@Composable
-private fun OverviewTab(s: Snapshot, drain: Drain?) {
+private fun verdictColor(v: Verdict): Int = if (v == Verdict.USUAL) Pal.MINT else Pal.CORAL
+
+private fun judgedCard(ctx: Context, title: String, subtitle: String, j: Judgement): View {
+    val c = card(ctx)
+    val head = LinearLayout(ctx)
+    head.orientation = LinearLayout.HORIZONTAL
+    head.gravity = Gravity.CENTER_VERTICAL
+    val t = label(ctx, title, 15f, Pal.INK, bold = true)
+    t.maxLines = 1
+    t.ellipsize = TextUtils.TruncateAt.END
+    head.addView(t, LinearLayout.LayoutParams(0, WRAP, 1f))
+    head.addView(chip(ctx, if (j.verdict == Verdict.USUAL) "Usual" else "Unusual", verdictColor(j.verdict)))
+    c.addView(head)
+
+    val sub = label(ctx, subtitle, 12f, Pal.DIM)
+    sub.maxLines = 2
+    sub.ellipsize = TextUtils.TruncateAt.END
+    c.addView(sub)
+
+    val kind = label(ctx, j.kind, 12f, Pal.SKY, bold = true)
+    kind.setPadding(0, ctx.dp(10), 0, 0)
+    c.addView(kind)
+    c.addView(label(ctx, j.description, 13f))
+    val why = label(ctx, j.reason, 13f, verdictColor(j.verdict))
+    why.setPadding(0, ctx.dp(6), 0, 0)
+    c.addView(why)
+    return c
+}
+
+// ------------------------------------------------------------------ tabs
+
+internal fun LinearLayout.buildOverview(s: Snapshot, drain: Drain?) {
+    val ctx = context
     val b = s.battery
-    if (b != null) {
-        GlassCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${b.level}%", color = Ink, fontSize = 52.sp, fontWeight = FontWeight.Bold)
-                Column(modifier = Modifier.padding(start = 18.dp)) {
-                    Text(
-                        text = b.status + if (b.plugged) " · plugged in" else "",
-                        color = Ink,
-                        fontSize = 15.sp
-                    )
-                    Text("%.1f °C".format(b.tempC), color = InkDim, fontSize = 14.sp)
-                    Text("Captured ${formatTime(s.capturedAt)}", color = InkDim, fontSize = 12.sp)
-                }
-            }
-            if (drain != null) {
-                val rate = "%.1f".format(drain.perHour)
-                val line = when {
-                    drain.deltaPct > 0 -> "−${drain.deltaPct}% in ${formatDuration(drain.minutes)} · $rate %/h"
-                    drain.deltaPct == 0 -> "No change in ${formatDuration(drain.minutes)}"
-                    else -> "Charged +${-drain.deltaPct}% since reference. Set a new reference."
-                }
-                Text(
-                    text = line,
-                    color = if (drain.perHour >= 4f) Coral else if (drain.perHour >= 2f) Amber else Mint,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-            }
-        }
-    }
+    val hero = card(ctx)
+    if (b == null) {
+        hero.addView(label(ctx, "No battery data came back.", 14f, Pal.DIM))
+    } else {
+        val row = LinearLayout(ctx)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
 
-    SectionTitle("Findings")
-    buildFindings(s, drain).forEach { f ->
+        val ring = RingView(ctx)
+        ring.percent = b.level
+        ring.accent = if (b.level <= 15) Pal.CORAL else if (b.level <= 30) Pal.AMBER else Pal.MINT
+        ring.caption = b.status.lowercase()
+        row.addView(ring, LinearLayout.LayoutParams(ctx.dp(116), ctx.dp(116)))
+
+        val col = LinearLayout(ctx)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(ctx.dp(18), 0, 0, 0)
+        col.addView(label(ctx, if (b.plugged) "Plugged in" else "On battery", 16f, Pal.INK, bold = true))
+        col.addView(label(ctx, "%.1f °C".format(b.tempC), 14f, Pal.DIM))
+        col.addView(label(ctx, "Captured ${formatTime(s.capturedAt)}", 12f, Pal.DIM))
+        if (drain != null) {
+            val rate = "%.1f".format(drain.perHour)
+            val line = when {
+                drain.deltaPct > 0 -> "−${drain.deltaPct}% in ${formatDuration(drain.minutes)} · $rate %/h"
+                drain.deltaPct == 0 -> "No change in ${formatDuration(drain.minutes)}"
+                else -> "Charged +${-drain.deltaPct}% since baseline"
+            }
+            val tone = if (drain.perHour >= 4f) Pal.CORAL else if (drain.perHour >= 2f) Pal.AMBER else Pal.MINT
+            val d = label(ctx, line, 14f, tone, bold = true)
+            d.setPadding(0, ctx.dp(8), 0, 0)
+            col.addView(d)
+        }
+        row.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
+        hero.addView(row)
+    }
+    addBlock(hero)
+
+    section("Findings")
+    for (f in buildFindings(s, drain)) {
         val accent = when (f.severity) {
-            Severity.INFO -> Mint
-            Severity.WATCH -> Amber
-            Severity.ALERT -> Coral
+            Severity.INFO -> Pal.MINT
+            Severity.WATCH -> Pal.AMBER
+            Severity.ALERT -> Pal.CORAL
         }
-        GlassCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(accent))
-                Text(
-                    text = f.title,
-                    color = accent,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
-            }
-            Text(f.detail, color = Ink, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
-        }
+        val c = card(ctx)
+        val head = LinearLayout(ctx)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(dot(ctx, accent))
+        val t = label(ctx, f.title, 15f, accent, bold = true)
+        t.setPadding(ctx.dp(8), 0, 0, 0)
+        head.addView(t)
+        c.addView(head)
+        val d = label(ctx, f.detail, 14f)
+        d.setPadding(0, ctx.dp(6), 0, 0)
+        c.addView(d)
+        addBlock(c)
     }
 
-    SectionTitle("Top consumers (estimated mAh)")
+    s.doze?.let { doze ->
+        section("Doze")
+        val c = card(ctx)
+        c.addView(label(ctx, "Deep ${doze.deep}  ·  Light ${doze.light}", 15f, Pal.INK, bold = true))
+        val hint = label(
+            ctx,
+            "IDLE means the system is deeply idling. A phone that stays ACTIVE for hours with the screen off is worth investigating.",
+            13f,
+            Pal.DIM
+        )
+        hint.setPadding(0, ctx.dp(6), 0, 0)
+        c.addView(hint)
+        addBlock(c)
+    }
+
+    section("Top consumers (estimated mAh)")
     if (s.consumers.isEmpty()) {
-        EmptyCard("No power estimates were found in this device's batterystats output.")
+        addBlock(emptyCard(ctx, "No power estimates were found in this device's batterystats output."))
     } else {
         val max = s.consumers.maxOf { it.mah }.coerceAtLeast(0.1f)
-        GlassCard {
-            s.consumers.forEach {
-                BarRow(it.label, "%.1f".format(it.mah), it.mah / max, Sky)
-            }
+        val c = card(ctx)
+        for (consumer in s.consumers) {
+            c.addView(barRow(ctx, consumer.label, "%.1f".format(consumer.mah), consumer.mah / max, Pal.SKY))
         }
+        addBlock(c)
     }
 }
 
-@Composable
-private fun VerdictChip(verdict: Verdict, label: String) {
-    val color = if (verdict == Verdict.USUAL) Mint else Coral
-    val shape = RoundedCornerShape(12.dp)
-    Box(
-        modifier = Modifier
-            .clip(shape)
-            .background(color.copy(alpha = 0.20f))
-            .border(1.dp, color.copy(alpha = 0.6f), shape)
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun JudgedCard(title: String, subtitle: String, j: Judgement) {
-    GlassCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = title,
-                color = Ink,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            VerdictChip(j.verdict, if (j.verdict == Verdict.USUAL) "Usual" else "Unusual")
-        }
-        Text(
-            text = subtitle,
-            color = InkDim,
-            fontSize = 12.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 2.dp)
-        )
-        Text(
-            text = j.kind,
-            color = Sky,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 10.dp)
-        )
-        Text(j.description, color = Ink, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
-        Text(
-            text = j.reason,
-            color = if (j.verdict == Verdict.USUAL) Mint else Coral,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-    }
-}
-
-@Composable
-private fun WakelocksTab(s: Snapshot) {
+internal fun LinearLayout.buildWakelocks(s: Snapshot) {
+    val ctx = context
     val judged = s.wakeLocks
         .map { it to judgeWakeLock(it, s.wakefulness) }
         .sortedByDescending { it.second.verdict == Verdict.UNUSUAL }
     val unusual = judged.count { it.second.verdict == Verdict.UNUSUAL }
 
-    SectionTitle("Held right now")
+    section("Held right now")
     if (judged.isEmpty()) {
-        EmptyCard("No wake locks are held at the moment of capture, or this device formats them differently.")
+        addBlock(emptyCard(ctx, "No wake locks are held at the moment of capture, or this device formats them differently."))
     } else {
-        GlassCard {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                VerdictChip(Verdict.USUAL, "${judged.size - unusual} usual")
-                VerdictChip(Verdict.UNUSUAL, "$unusual unusual")
-            }
-            Text(
-                text = "Screen state: ${s.wakefulness ?: "unknown"}. Limits are stricter while the screen is off.",
-                color = InkDim,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 10.dp)
-            )
-        }
-        judged.forEach { (w, j) ->
+        val summary = card(ctx)
+        val chips = LinearLayout(ctx)
+        chips.orientation = LinearLayout.HORIZONTAL
+        val usual = chip(ctx, "${judged.size - unusual} usual", Pal.MINT)
+        chips.addView(usual)
+        val bad = chip(ctx, "$unusual unusual", Pal.CORAL)
+        val lp = LinearLayout.LayoutParams(WRAP, WRAP)
+        lp.leftMargin = ctx.dp(10)
+        chips.addView(bad, lp)
+        summary.addView(chips)
+        val note = label(
+            ctx,
+            "Screen state: ${s.wakefulness ?: "unknown"}. Limits are stricter while the screen is off.",
+            12f,
+            Pal.DIM
+        )
+        note.setPadding(0, ctx.dp(10), 0, 0)
+        summary.addView(note)
+        addBlock(summary)
+        for ((w, j) in judged) {
             val held = w.heldMs?.let { formatHeld(it) } ?: "unknown"
-            JudgedCard(w.owner, "${w.type} · '${w.tag}' · held $held", j)
+            addBlock(judgedCard(ctx, w.owner, "${w.type} · '${w.tag}' · held $held", j))
         }
     }
 
-    SectionTitle("Kernel wakelocks (since last charge)")
+    section("Kernel wakelocks (since last charge)")
     if (s.kernelWakelocks.isEmpty()) {
-        EmptyCard("No kernel wakelock lines were reported. Newer Android versions often omit them.")
+        addBlock(emptyCard(ctx, "No kernel wakelock lines were reported. Newer Android versions often omit them."))
     } else {
-        s.kernelWakelocks.forEach { k ->
-            JudgedCard(k.name, "${k.count}× · ${k.duration}", judgeKernelWakelock(k))
+        for (k in s.kernelWakelocks) {
+            addBlock(judgedCard(ctx, k.name, "${k.count}× · ${k.duration}", judgeKernelWakelock(k)))
         }
     }
 }
 
-@Composable
-private fun AlarmsTab(s: Snapshot) {
-    SectionTitle("Alarm wakeups by app")
+internal fun LinearLayout.buildAlarms(s: Snapshot) {
+    val ctx = context
+    section("Alarm wakeups by app")
     if (s.alarms.isEmpty()) {
-        EmptyCard("No per-app alarm statistics were found in this device's output.")
-    } else {
-        val max = s.alarms.maxOf { it.wakeups }.coerceAtLeast(1)
-        GlassCard {
-            s.alarms.forEach {
-                BarRow(it.owner, "${it.wakeups}", it.wakeups.toFloat() / max, Amber)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DozeTab(s: Snapshot) {
-    val d = s.doze
-    if (d == null) {
-        EmptyCard("Doze state was not reported by this device.")
+        addBlock(emptyCard(ctx, "No per-app alarm statistics were found in this device's output."))
         return
     }
-    GlassCard {
-        Text("Deep Doze", color = InkDim, fontSize = 13.sp)
-        Text(d.deep, color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        Text("Light Doze", color = InkDim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
-        Text(d.light, color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-    }
-    EmptyCard("IDLE means the system is deeply idling. ACTIVE means it is not. A phone that sits ACTIVE for hours while the screen is off is worth investigating.")
+    val max = s.alarms.maxOf { it.wakeups }.coerceAtLeast(1)
+    val c = card(ctx)
+    for (a in s.alarms) c.addView(barRow(ctx, a.owner, "${a.wakeups}", a.wakeups.toFloat() / max, Pal.AMBER))
+    addBlock(c)
 }
 
-@Composable
-private fun InfoLine(row: InfoRow) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text(row.label, color = InkDim, fontSize = 13.sp, modifier = Modifier.weight(0.4f))
-        Text(
-            text = row.value,
-            color = Ink,
-            fontSize = 13.sp,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(0.6f)
-        )
+internal fun LinearLayout.buildDevice(onRefresh: () -> Unit) {
+    val ctx = context
+    val refresh = pill(ctx, "Refresh", sp = 13f, onClick = onRefresh)
+    val lp = LinearLayout.LayoutParams(WRAP, WRAP)
+    lp.bottomMargin = ctx.dp(4)
+    addView(refresh, lp)
+    for (sec in collectSystemInfo(ctx)) {
+        section(sec.title)
+        val c = card(ctx)
+        for (row in sec.rows) c.addView(infoLine(ctx, row))
+        addBlock(c)
     }
 }
 
-@Composable
-private fun DeviceTab() {
-    val context = LocalContext.current
-    var refresh by remember { mutableIntStateOf(0) }
-    val sections = remember(refresh) { collectSystemInfo(context) }
-
-    GlassButton("Refresh", onClick = { refresh++ })
-    sections.forEach { section ->
-        SectionTitle(section.title)
-        GlassCard {
-            section.rows.forEach { InfoLine(it) }
-        }
-    }
+internal fun LinearLayout.buildReportView(report: String) {
+    val c = card(context)
+    val t = label(context, report, 12f, Pal.INK, mono = true)
+    t.setTextIsSelectable(true)
+    c.addView(t)
+    addBlock(c)
 }
 
-@Composable
-private fun AboutTab(updateAlerts: Boolean) {
-    val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
-    val version = remember {
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
-            .getOrNull()
-            .orEmpty()
-    }
-    val open: (String) -> Unit = { url ->
-        try {
-            uriHandler.openUri(url)
-        } catch (_: Throwable) {
-        }
+internal fun LinearLayout.buildAbout(updateAlerts: Boolean, onToggleUpdates: () -> Unit, onOpen: (String) -> Unit) {
+    val ctx = context
+    val version = try {
+        ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+    } catch (_: Throwable) {
+        ""
     }
 
-    GlassCard {
-        Text("DrainScout", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Version $version", color = InkDim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
-        Text(
-            text = "Designed with care, calibrated for 15 and 9",
-            color = Mint,
-            fontSize = 15.sp,
-            fontStyle = FontStyle.Italic,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 14.dp)
+    val hero = card(ctx)
+    hero.addView(label(ctx, "DrainScout", 28f, Pal.INK, bold = true))
+    hero.addView(label(ctx, "Version $version", 13f, Pal.DIM))
+    val sig = label(ctx, "Designed with care, calibrated for 15 and 9", 15f, Pal.MINT, bold = true)
+    sig.setPadding(0, ctx.dp(14), 0, 0)
+    hero.addView(sig)
+    addBlock(hero)
+
+    section("What it does")
+    val what = card(ctx)
+    what.addView(
+        label(
+            ctx,
+            "Reads battery, power, alarm and Doze state through Shizuku, then points at the apps and wake locks most likely to be draining your battery. Capture twice and compare to get a drain rate since your baseline.",
+            14f
         )
-    }
+    )
+    addBlock(what)
 
-    SectionTitle("What it does")
-    GlassCard {
-        Text(
-            "Reads battery, power, alarm and Doze state through Shizuku, then points at the apps and wake locks most likely to be draining your battery. Capture twice and compare to see a drain rate since your reference point.",
-            color = Ink,
-            fontSize = 14.sp
+    section("How wake locks are judged")
+    val how = card(ctx)
+    how.addView(
+        label(
+            ctx,
+            "Each wake lock is matched to a known kind (push, alarm, job, location, audio) and compared with how long that kind is normally held. Limits are tighter while the screen is off. They are DrainScout heuristics, not official Android thresholds. One capture is a lead, not a verdict.",
+            14f
         )
-    }
+    )
+    addBlock(how)
 
-    SectionTitle("How wake locks are judged")
-    GlassCard {
-        Text(
-            "Each wake lock is matched to a known kind (push, alarm, job, location, audio) and compared with how long that kind is normally held. Limits are tighter while the screen is off. They are DrainScout heuristics, not official Android thresholds. A single capture is a lead, not a verdict.",
-            color = Ink,
-            fontSize = 14.sp
+    section("Updates and privacy")
+    val priv = card(ctx)
+    priv.addView(
+        label(
+            ctx,
+            "Nothing leaves your device. The only network request is a check of the GitHub releases page for a newer version, about every 6 hours.",
+            14f
         )
-    }
+    )
+    val toggle = pill(ctx, if (updateAlerts) "Update alerts: On" else "Update alerts: Off", sp = 13f, onClick = onToggleUpdates)
+    val tlp = LinearLayout.LayoutParams(WRAP, WRAP)
+    tlp.topMargin = ctx.dp(12)
+    priv.addView(toggle, tlp)
+    addBlock(priv)
 
-    SectionTitle("Privacy")
-    GlassCard {
-        Text(
-            text = "Nothing leaves your device. The only network request is an update check against the GitHub releases API, currently " +
-                (if (updateAlerts) "on" else "off") +
-                ". Switch it with the Update alerts button.",
-            color = Ink,
-            fontSize = 14.sp
-        )
-    }
-
-    SectionTitle("Project")
-    GlassCard {
-        Text("Open source. Built on Shizuku, inspired by BetterBatteryStats.", color = Ink, fontSize = 14.sp)
-        Row(
-            modifier = Modifier.padding(top = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            GlassButton("Source code", onClick = { open("https://github.com/stonecaper1-lab/DrainScout2") })
-            GlassButton("Releases", onClick = { open("https://github.com/stonecaper1-lab/DrainScout2/releases") })
-        }
-    }
+    section("Project")
+    val project = card(ctx)
+    project.addView(label(ctx, "Open source. Built on Shizuku, inspired by BetterBatteryStats.", 14f))
+    val links = LinearLayout(ctx)
+    links.orientation = LinearLayout.HORIZONTAL
+    links.addView(pill(ctx, "Source code", sp = 13f) { onOpen("https://github.com/stonecaper1-lab/DrainScout2") })
+    val rlp = LinearLayout.LayoutParams(WRAP, WRAP)
+    rlp.leftMargin = ctx.dp(10)
+    links.addView(pill(ctx, "Releases", sp = 13f) { onOpen("https://github.com/stonecaper1-lab/DrainScout2/releases") }, rlp)
+    val llp = LinearLayout.LayoutParams(WRAP, WRAP)
+    llp.topMargin = ctx.dp(12)
+    project.addView(links, llp)
+    addBlock(project)
 }

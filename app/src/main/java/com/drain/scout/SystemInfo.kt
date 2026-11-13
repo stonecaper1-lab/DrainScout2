@@ -246,5 +246,7 @@ private fun shizukuSection(): InfoSection {
         }
         rows.add(InfoRow("Permission for DrainScout", yesNo(DiagnosticEngine.hasShellPermission())))
     }
+    rows.add(InfoRow("Command channel", Shell.mode))
+    Shell.lastError?.let { rows.add(InfoRow("Last shell error", it)) }
     return InfoSection("Shizuku", rows)
 }

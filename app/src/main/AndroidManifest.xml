@@ -1,17 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Used only to check GitHub for new DrainScout releases. -->
+    <!-- Only used to check GitHub for new DrainScout releases. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="DrainScout"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Theme.DrainScout">
 
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
@@ -28,6 +29,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density|fontScale|layoutDirection"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
