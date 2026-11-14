@@ -548,13 +548,85 @@ internal fun LinearLayout.buildAbout(updateAlerts: Boolean, onToggleUpdates: () 
     addBlock(project)
 }
 
+internal class MonitorUi(
+    val running: Boolean,
+    val intervalMin: Int,
+    val onToggle: () -> Unit,
+    val onInterval: (Int) -> Unit,
+    val onBatterySettings: () -> Unit
+)
+
 internal fun LinearLayout.buildHistory(
     entries: List<HistoryEntry>,
     expanded: Set<Long>,
+    monitor: MonitorUi,
     onToggle: (Long) -> Unit,
     onClear: () -> Unit
 ) {
     val ctx = context
+
+    section("Continuous monitor")
+    val m = card(ctx)
+    m.addView(label(ctx, if (monitor.running) "Monitoring is on" else "Monitoring is off", 15f, Pal.INK, bold = true))
+    val mnote = label(
+        ctx,
+        "Captures on a timer in the background so a whole discharge from 100% to 0% is recorded. Shows a notification while on. Each capture costs a little battery, so longer intervals are lighter.",
+        12f,
+        Pal.DIM
+    )
+    mnote.setPadding(0, ctx.dp(4), 0, ctx.dp(10))
+    m.addView(mnote)
+    val chips = LinearLayout(ctx)
+    chips.orientation = LinearLayout.HORIZONTAL
+    for (min in listOf(15, 30, 60)) {
+        val on = monitor.intervalMin == min
+        val c = pill(ctx, if (min == 60) "1 h" else "$min min", primary = on, sp = 12f, hPadDp = 4) { monitor.onInterval(min) }
+        val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+        lp.setMargins(ctx.dp(3), 0, ctx.dp(3), 0)
+        chips.addView(c, lp)
+    }
+    m.addView(chips)
+    val actions = LinearLayout(ctx)
+    actions.orientation = LinearLayout.HORIZONTAL
+    actions.setPadding(0, ctx.dp(8), 0, 0)
+    val a1 = LinearLayout.LayoutParams(0, WRAP, 1f)
+    a1.setMargins(ctx.dp(3), 0, ctx.dp(3), 0)
+    actions.addView(pill(ctx, if (monitor.running) "Stop" else "Start", primary = !monitor.running, sp = 13f) { monitor.onToggle() }, a1)
+    val a2 = LinearLayout.LayoutParams(0, WRAP, 1f)
+    a2.setMargins(ctx.dp(3), 0, ctx.dp(3), 0)
+    actions.addView(pill(ctx, "Keep alive", sp = 13f) { monitor.onBatterySettings() }, a2)
+    m.addView(actions)
+    val tip = label(
+        ctx,
+        "Keep alive: choose \"Unrestricted\" for DrainScout so Android does not stop it. Some phones also need auto-start allowed in their own settings.",
+        11f,
+        Pal.DIM
+    )
+    tip.setPadding(0, ctx.dp(8), 0, 0)
+    m.addView(tip)
+    addBlock(m)
+
+    val run = currentRun(entries)
+    if (run != null) {
+        section("Current discharge")
+        val r = card(ctx)
+        r.addView(label(ctx, "${run.startLevel}% → ${run.endLevel}%", 22f, Pal.INK, bold = true))
+        r.addView(
+            label(
+                ctx,
+                "over ${formatDuration(run.minutes)} · ${run.samples} captures · ${"%.1f".format(run.perHour)}%/h average",
+                12f,
+                Pal.DIM
+            )
+        )
+        run.hoursLeft?.let {
+            val t = label(ctx, "At this rate: about ${formatDuration((it * 60).toLong())} left", 13f, Pal.AMBER)
+            t.setPadding(0, ctx.dp(6), 0, 0)
+            r.addView(t)
+        }
+        addBlock(r)
+    }
+
     section("Previous captures")
     if (entries.isEmpty()) {
         addBlock(emptyCard(ctx, "Nothing saved yet. Every successful capture is stored here, so you can compare later."))

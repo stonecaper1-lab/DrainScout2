@@ -1,6 +1,8 @@
-## DrainScout v1.5.0
+## DrainScout v1.6.0
 
-- **New History tab:** every successful capture is saved on the device (last 40). See battery, screen state, wake lock counts, drain between captures, and tap a capture for its wake locks, consumers, alarms and kernel wakelocks. Repeat offenders (flagged unusual more than once) are listed on top. Clear history any time.
-- More wakelock knowledge: media scanner, connectivity, sync loop, Google connection, activity manager, lock screen refresh and AlarmManager locks now get their own description and limit, based on the XDA wakelock guide (written for Android 4.x, so treated as hints).
-- Includes the v1.4.0 capture fix (user service channel) and lightweight redesign.
-- Same signing key: installs over earlier versions.
+- **Continuous monitor:** History tab has a Start/Stop switch. A foreground service captures every 15, 30 or 60 minutes (default 15), survives swiping the app away, restarts after a reboot, and keeps going in Doze, so a whole 100% to 0% discharge is recorded.
+- **Current discharge card:** start and end level, duration, average %/h, and estimated time left.
+- Charging samples are skipped (only the first of a charge is kept) so history stays about draining. History keeps the last 300 captures.
+- "Keep alive" button opens Android's battery setting. Choose Unrestricted for DrainScout. Some phones also need auto-start allowed.
+- Shows a notification while monitoring, with a Stop action.
+- Includes History tab and XDA wakelock knowledge (v1.5.0), capture fix and redesign (v1.4.0). Same signing key.

@@ -6,7 +6,8 @@ Find out **why your phone loses battery while it sits idle**: wakelocks, alarms,
 - **Overview**: battery ring, findings, top consumers
 - **Wakelocks**: every held wakelock with a Usual / Unusual verdict and a plain description
 - **Alarms**: apps that wake the device most
-- **History**: every capture is saved (last 40) with its wake locks, consumers and drain between captures; tap one for details, repeat offenders are highlighted
+- **History**: every capture is saved (last 300) with its wake locks, consumers and drain between captures; tap one for details, repeat offenders are highlighted
+  - **Continuous monitor** (in History): a foreground service captures every 15, 30 or 60 minutes so a full 100% to 0% discharge is recorded, with a live "current discharge" summary and estimated time left
 - **Device**: system info and the active command channel
 - **Report**: copy or share a text report, set a baseline to measure drain since
 - **About**: update alerts toggle, links

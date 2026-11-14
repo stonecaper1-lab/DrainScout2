@@ -278,7 +278,7 @@ class MainActivity : Activity() {
         val s = snapshot
         val name = TABS[tab]
         when (name) {
-            "History" -> content.buildHistory(HistoryStore.load(this), expanded, { t ->
+            "History" -> content.buildHistory(HistoryStore.load(this), expanded, monitorUi(), { t ->
                 if (!expanded.remove(t)) expanded.add(t)
                 render()
             }, {
@@ -302,6 +302,49 @@ class MainActivity : Activity() {
                     "Alarms" -> content.buildAlarms(s)
                     else -> content.buildReportView(buildReport(s, currentDrain()))
                 }
+            }
+        }
+    }
+
+    private fun monitorUi() = MonitorUi(
+        running = MonitorPrefs.enabled(this),
+        intervalMin = MonitorPrefs.intervalMin(this),
+        onToggle = {
+            if (MonitorPrefs.enabled(this)) {
+                MonitorService.stop(this)
+            } else {
+                askNotifications()
+                try {
+                    MonitorService.start(this)
+                } catch (e: Exception) {
+                    MonitorPrefs.setEnabled(this, false)
+                    toast("Could not start monitoring: ${e.message}")
+                }
+            }
+            render()
+        },
+        onInterval = { min ->
+            MonitorPrefs.setIntervalMin(this, min)
+            if (MonitorPrefs.enabled(this)) MonitorService.scheduleNext(this)
+            render()
+        },
+        onBatterySettings = { openBatterySettings() }
+    )
+
+    @android.annotation.SuppressLint("BatteryLife")
+    private fun openBatterySettings() {
+        try {
+            startActivity(
+                Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (_: Throwable) {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Throwable) {
+                toast("Open Settings > Apps > DrainScout > Battery and choose Unrestricted")
             }
         }
     }

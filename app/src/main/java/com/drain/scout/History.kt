@@ -126,7 +126,7 @@ internal object HistoryCodec {
 internal object HistoryStore {
     private const val FILE = "drainscout_history"
     private const val KEY = "entries"
-    const val MAX = 40
+    const val MAX = 300
 
     /** Newest first. */
     fun load(ctx: Context): List<HistoryEntry> {
@@ -147,6 +147,14 @@ internal object HistoryStore {
         save(ctx, merged)
     }
 
+    /** While charging, keep only the first sample of a charge so the history stays about draining. */
+    fun addIfWorthKeeping(ctx: Context, entry: HistoryEntry): Boolean {
+        val last = load(ctx).firstOrNull()
+        if (entry.plugged && last != null && last.plugged) return false
+        add(ctx, entry)
+        return true
+    }
+
     fun clear(ctx: Context) = save(ctx, emptyList())
 
     private fun save(ctx: Context, entries: List<HistoryEntry>) {
@@ -157,4 +165,32 @@ internal object HistoryStore {
         } catch (_: Exception) {
         }
     }
+}
+
+/** The discharge in progress: unplugged samples back to where the battery last went up or was charging. */
+internal data class DischargeRun(
+    val startLevel: Int,
+    val startTime: Long,
+    val endLevel: Int,
+    val endTime: Long,
+    val samples: Int
+) {
+    val minutes: Long get() = (endTime - startTime) / 60_000L
+    val perHour: Float get() = if (minutes < 1L) 0f else (startLevel - endLevel) * 60f / minutes
+    /** Hours until empty at the average rate, or null if the rate is not meaningful yet. */
+    val hoursLeft: Float? get() = if (perHour >= 0.1f) endLevel / perHour else null
+}
+
+internal fun currentRun(newestFirst: List<HistoryEntry>): DischargeRun? {
+    val latest = newestFirst.firstOrNull() ?: return null
+    if (latest.plugged) return null
+    var oldest = latest
+    var count = 1
+    for (e in newestFirst.drop(1)) {
+        if (e.plugged || e.level < oldest.level) break
+        oldest = e
+        count++
+    }
+    if (count < 2 || latest.time <= oldest.time) return null
+    return DischargeRun(oldest.level, oldest.time, latest.level, latest.time, count)
 }
