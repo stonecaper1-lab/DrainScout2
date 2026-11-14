@@ -18,7 +18,9 @@ private class Rule(
 
 private val LOCATION_RX = Regex("(?i)location|Nlp|CollectionLib")
 
-// Tag patterns and meanings come from Android's "Identify and optimize wake lock use cases" guide.
+// Tag patterns and meanings come from Android's "Identify and optimize wake lock use cases" guide
+// and, for the named system locks, from T.J. Bender's XDA "Total Newb's Guide to Wakelocks".
+// That guide dates from Android 4.x, so the advice is a hint, not a rule.
 // The minute limits are DrainScout heuristics, not official Android thresholds.
 private val RULES = listOf(
     Rule(
@@ -35,12 +37,42 @@ private val RULES = listOf(
         "Alarm",
         "Held by AlarmManager from the moment an alarm fires until the app's receiver finishes. It should last seconds.",
         2L
-    ) { it.contains("*alarm*") },
+    ) { it.contains("*alarm*") || it == "AlarmManager" },
     Rule(
         "Background job",
         "Held while JobScheduler or WorkManager runs a background task for the app. Normal for short tasks. A long hold means the task is heavy or stuck.",
         30L
     ) { it.contains("*job*") },
+    Rule(
+        "Media scanner",
+        "The system scanning storage for music, photos and video. It should finish quickly. A lock that stays on often means a corrupt media file; a reboot usually clears it.",
+        15L
+    ) { it.startsWith("MediaScanner") },
+    Rule(
+        "Mobile data connection",
+        "Held while the phone tries to connect to a mobile network. Long holds suggest weak signal or a network that keeps dropping.",
+        30L
+    ) { it.startsWith("ConnectivityService") },
+    Rule(
+        "Background sync",
+        "Held while apps sync data. Long holds mean a chatty app or a poor data connection. Check which apps sync too often.",
+        30L
+    ) { it.startsWith("SyncLoop") || it.startsWith("*sync*") },
+    Rule(
+        "Google connection",
+        "Google services keeping a connection open. It is often tied to a poor Wi-Fi or data connection and usually clears within a minute.",
+        10L
+    ) { it.startsWith("GTALK_ASYNC_CONN") || it.startsWith("GSYNC_ASYNC") },
+    Rule(
+        "Activity manager",
+        "Held by the system while apps are switching or closing. Usually harmless.",
+        60L
+    ) { it.startsWith("ActivityManager") },
+    Rule(
+        "Lock screen refresh",
+        "The lock screen waking the phone to refresh items such as weather, calendar or user info. Turning those off lowers it.",
+        15L
+    ) { it.equals("show keyguard", ignoreCase = true) },
     Rule(
         "Location",
         "Held while Google Play services or an app collects location. Brief wakeups are expected, continuous holds are not.",
@@ -48,7 +80,7 @@ private val RULES = listOf(
     ) { LOCATION_RX.containsMatchIn(it) },
     Rule(
         "Audio",
-        "Held while audio plays or records so the CPU keeps feeding the sound. Normal while media is active.",
+        "Held while audio plays or records so the CPU keeps feeding the sound. Normal while media is active. If it lingers with nothing playing, keypad and touch sounds can leave it held, so try turning those off.",
         180L
     ) { it.startsWith("Audio") || it == "MmapCapture" || it == "MmapPlayback" }
 )

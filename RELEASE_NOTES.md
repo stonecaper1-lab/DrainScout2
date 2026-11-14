@@ -1,8 +1,6 @@
-## DrainScout v1.4.0
+## DrainScout v1.5.0
 
-- **Fixed:** "No data came back / process hasn't exited". Commands now run through a Shizuku user service (same approach as wakelogs), with a safe reflection fallback.
-- **Redesign:** lighter plain-Views UI with liquid-glass styling, much smaller APK (R8, no Compose/AndroidX).
-- Scrollable tab bar so six tabs fit small screens.
-- Amber notice when only part of the data could be read.
-- Device tab shows the command channel and last shell error.
-- Same signing key: installs over v1.1 to v1.3.
+- **New History tab:** every successful capture is saved on the device (last 40). See battery, screen state, wake lock counts, drain between captures, and tap a capture for its wake locks, consumers, alarms and kernel wakelocks. Repeat offenders (flagged unusual more than once) are listed on top. Clear history any time.
+- More wakelock knowledge: media scanner, connectivity, sync loop, Google connection, activity manager, lock screen refresh and AlarmManager locks now get their own description and limit, based on the XDA wakelock guide (written for Android 4.x, so treated as hints).
+- Includes the v1.4.0 capture fix (user service channel) and lightweight redesign.
+- Same signing key: installs over earlier versions.

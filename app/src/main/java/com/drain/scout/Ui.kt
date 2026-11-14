@@ -547,3 +547,110 @@ internal fun LinearLayout.buildAbout(updateAlerts: Boolean, onToggleUpdates: () 
     project.addView(links, llp)
     addBlock(project)
 }
+
+internal fun LinearLayout.buildHistory(
+    entries: List<HistoryEntry>,
+    expanded: Set<Long>,
+    onToggle: (Long) -> Unit,
+    onClear: () -> Unit
+) {
+    val ctx = context
+    section("Previous captures")
+    if (entries.isEmpty()) {
+        addBlock(emptyCard(ctx, "Nothing saved yet. Every successful capture is stored here, so you can compare later."))
+        return
+    }
+
+    // Wake locks flagged unusual in more than one capture
+    val repeat = entries.flatMap { e -> e.wakes.filter { it.unusual }.map { "${it.owner} · '${it.tag}'" }.distinct() }
+        .groupingBy { it }.eachCount().filter { it.value >= 2 }.entries.sortedByDescending { it.value }.take(5)
+    if (repeat.isNotEmpty()) {
+        val c = card(ctx)
+        c.addView(label(ctx, "Repeat offenders", 15f, Pal.INK, bold = true))
+        val hint = label(ctx, "Flagged unusual in more than one capture.", 12f, Pal.DIM)
+        hint.setPadding(0, 0, 0, ctx.dp(6))
+        c.addView(hint)
+        for ((name, n) in repeat) {
+            c.addView(barRow(ctx, name, "$n of ${entries.size}", n.toFloat() / entries.size, Pal.CORAL))
+        }
+        addBlock(c)
+    }
+
+    entries.forEachIndexed { index, e ->
+        val c = card(ctx)
+        c.isClickable = true
+        c.setOnClickListener { onToggle(e.time) }
+
+        val head = LinearLayout(ctx)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(label(ctx, formatTime(e.time), 15f, Pal.INK, bold = true), LinearLayout.LayoutParams(0, WRAP, 1f))
+        head.addView(chip(ctx, "${e.level}%", if (e.plugged) Pal.SKY else Pal.MINT))
+        c.addView(head)
+
+        val state = buildString {
+            append("Screen ${e.screen.lowercase()}")
+            append(" · ${"%.1f".format(e.tempC)}°C")
+            if (e.plugged) append(" · charging")
+        }
+        c.addView(label(ctx, state, 12f, Pal.DIM))
+
+        val older = entries.getOrNull(index + 1)
+        if (older != null && !e.plugged && !older.plugged && e.level <= older.level) {
+            val d = drainSince(older.level, older.time, e.level, e.time)
+            if (d != null) {
+                val t = label(
+                    ctx,
+                    "−${d.deltaPct}% over ${formatDuration(d.minutes)} since the previous capture (${"%.1f".format(d.perHour)}%/h)",
+                    12f,
+                    Pal.AMBER
+                )
+                t.setPadding(0, ctx.dp(6), 0, 0)
+                c.addView(t)
+            }
+        }
+
+        val chips = LinearLayout(ctx)
+        chips.orientation = LinearLayout.HORIZONTAL
+        chips.setPadding(0, ctx.dp(10), 0, 0)
+        chips.addView(chip(ctx, "${e.wakeTotal} wake locks", Pal.SKY))
+        val lp = LinearLayout.LayoutParams(WRAP, WRAP)
+        lp.leftMargin = ctx.dp(8)
+        chips.addView(chip(ctx, "${e.wakeUnusual} unusual", if (e.wakeUnusual > 0) Pal.CORAL else Pal.MINT), lp)
+        c.addView(chips)
+
+        if (e.time in expanded) {
+            fun head(text: String) {
+                val t = label(ctx, text, 12f, Pal.SKY, bold = true)
+                t.setPadding(0, ctx.dp(12), 0, ctx.dp(2))
+                c.addView(t)
+            }
+            if (e.wakes.isNotEmpty()) {
+                head("Wake locks")
+                for (w in e.wakes) {
+                    val held = if (w.heldMs >= 0) formatHeld(w.heldMs) else "unknown"
+                    c.addView(label(ctx, "${w.owner} · '${w.tag}' · $held", 12f, if (w.unusual) Pal.CORAL else Pal.INK))
+                }
+            }
+            if (e.consumers.isNotEmpty()) {
+                head("Top consumers")
+                for (x in e.consumers) c.addView(label(ctx, "${x.label} · ${"%.1f".format(x.mah)} mAh", 12f))
+            }
+            if (e.alarms.isNotEmpty()) {
+                head("Alarm wakeups")
+                for (a in e.alarms) c.addView(label(ctx, "${a.owner} · ${a.wakeups}", 12f))
+            }
+            if (e.kernel.isNotEmpty()) {
+                head("Kernel wakelocks")
+                for (k in e.kernel) c.addView(label(ctx, "${k.name} · ${k.count}× · ${k.duration}", 12f))
+            }
+        } else {
+            val tap = label(ctx, "Tap for details", 11f, Pal.DIM)
+            tap.setPadding(0, ctx.dp(8), 0, 0)
+            c.addView(tap)
+        }
+        addBlock(c)
+    }
+
+    addBlock(pill(ctx, "Clear history") { onClear() })
+}

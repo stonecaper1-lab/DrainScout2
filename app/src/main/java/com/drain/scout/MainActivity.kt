@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     private var baselineLevel: Int? = null
     private var baselineTime: Long? = null
     private var updateAlerts = true
+    private val expanded = HashSet<Long>()
 
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -275,9 +276,18 @@ class MainActivity : Activity() {
         }
 
         val s = snapshot
-        when (tab) {
-            3 -> content.buildDevice { render() }
-            5 -> content.buildAbout(updateAlerts, { toggleUpdates() }, { openUrl(it) })
+        val name = TABS[tab]
+        when (name) {
+            "History" -> content.buildHistory(HistoryStore.load(this), expanded, { t ->
+                if (!expanded.remove(t)) expanded.add(t)
+                render()
+            }, {
+                HistoryStore.clear(this)
+                expanded.clear()
+                render()
+            })
+            "Device" -> content.buildDevice { render() }
+            "About" -> content.buildAbout(updateAlerts, { toggleUpdates() }, { openUrl(it) })
             else -> if (s == null) {
                 content.addBlock(
                     emptyCard(
@@ -286,10 +296,10 @@ class MainActivity : Activity() {
                     )
                 )
             } else {
-                when (tab) {
-                    0 -> content.buildOverview(s, currentDrain())
-                    1 -> content.buildWakelocks(s)
-                    2 -> content.buildAlarms(s)
+                when (name) {
+                    "Overview" -> content.buildOverview(s, currentDrain())
+                    "Wakelocks" -> content.buildWakelocks(s)
+                    "Alarms" -> content.buildAlarms(s)
                     else -> content.buildReportView(buildReport(s, currentDrain()))
                 }
             }
@@ -341,6 +351,7 @@ class MainActivity : Activity() {
             }
             val snap = captured
             val failure = failed
+            if (snap != null) HistoryEntry.from(snap)?.let { HistoryStore.add(appContext, it) }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 loading = false
@@ -452,6 +463,6 @@ class MainActivity : Activity() {
     private companion object {
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-        val TABS = listOf("Overview", "Wakelocks", "Alarms", "Device", "Report", "About")
+        val TABS = listOf("Overview", "Wakelocks", "Alarms", "History", "Device", "Report", "About")
     }
 }
