@@ -49,6 +49,8 @@ class MainActivity : Activity() {
     private var baselineTime: Long? = null
     private var updateAlerts = true
     private val expanded = HashSet<Long>()
+    private var detailsSub = 0
+    private var moreSub = 0
 
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -277,8 +279,16 @@ class MainActivity : Activity() {
 
         val s = snapshot
         val name = TABS[tab]
+        val noCapture = {
+            content.addBlock(
+                emptyCard(
+                    this,
+                    "No capture yet. Connect Shizuku, then tap Capture. The first capture becomes your baseline. Capture again later to see the drain rate."
+                )
+            )
+        }
         when (name) {
-            "History" -> content.buildHistory(HistoryStore.load(this), expanded, monitorUi(), { t ->
+            "Timeline" -> content.buildHistory(HistoryStore.load(this), expanded, monitorUi(), { t ->
                 if (!expanded.remove(t)) expanded.add(t)
                 render()
             }, {
@@ -286,22 +296,28 @@ class MainActivity : Activity() {
                 expanded.clear()
                 render()
             })
-            "Device" -> content.buildDevice { render() }
-            "About" -> content.buildAbout(updateAlerts, { toggleUpdates() }, { openUrl(it) })
-            else -> if (s == null) {
-                content.addBlock(
-                    emptyCard(
-                        this,
-                        "No capture yet. Connect Shizuku, then tap Capture. The first capture becomes your baseline. Capture again later to see the drain rate."
-                    )
-                )
-            } else {
-                when (name) {
-                    "Overview" -> content.buildOverview(s, currentDrain())
-                    "Wakelocks" -> content.buildWakelocks(s)
-                    "Alarms" -> content.buildAlarms(s)
-                    else -> content.buildReportView(buildReport(s, currentDrain()))
+            "Details" -> {
+                content.addSubTabs(DETAILS, detailsSub) { detailsSub = it; render() }
+                if (s == null) noCapture() else when (detailsSub) {
+                    0 -> content.buildWakelocks(s)
+                    1 -> content.buildAlarms(s)
+                    else -> content.buildProcesses(s)
                 }
+            }
+            "More" -> {
+                content.addSubTabs(MORE, moreSub) { moreSub = it; render() }
+                when (moreSub) {
+                    0 -> if (s == null) noCapture() else content.buildReportView(reportText())
+                    1 -> content.buildDevice { render() }
+                    else -> content.buildAbout(updateAlerts, { toggleUpdates() }, { openUrl(it) })
+                }
+            }
+            else -> if (s == null) {
+                noCapture()
+            } else {
+                val history = HistoryStore.load(this)
+                val sleep = judgeSleep(s, history)
+                content.buildCulprit(s, currentDrain(), sleep, findSuspects(s, sleep), monitorUi())
             }
         }
     }
@@ -434,7 +450,7 @@ class MainActivity : Activity() {
 
     private fun reportText(): String {
         val s = snapshot ?: return ""
-        return buildReport(s, currentDrain())
+        return buildReport(s, currentDrain(), HistoryStore.load(this))
     }
 
     private fun copyReport() {
@@ -506,6 +522,8 @@ class MainActivity : Activity() {
     private companion object {
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-        val TABS = listOf("Overview", "Wakelocks", "Alarms", "History", "Device", "Report", "About")
+        val TABS = listOf("Culprit", "Timeline", "Details", "More")
+        val DETAILS = listOf("Wakelocks", "Alarms", "Processes")
+        val MORE = listOf("Report", "Device", "About")
     }
 }

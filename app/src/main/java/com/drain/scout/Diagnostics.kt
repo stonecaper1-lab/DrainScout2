@@ -2,6 +2,7 @@ package com.drain.scout
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import rikka.shizuku.Shizuku
 
 internal object DiagnosticEngine {
@@ -26,8 +27,9 @@ internal object DiagnosticEngine {
         val alarm = Shell.run("dumpsys alarm | grep ' wakeups'")
         val idle = Shell.run("dumpsys deviceidle | grep -E 'mState=|mLightState='")
         val stats = Shell.run(
-            "dumpsys batterystats --charged | sed -n -e '/Estimated power use/,/^\$/p' -e '/[Kk]ernel [Ww]ake lock/p'"
+            "dumpsys batterystats --charged | sed -n -e '/Estimated power use/,/^\$/p' -e '/[Kk]ernel [Ww]ake lock/p' -e '/Time on battery/p'"
         )
+        val cpu = Shell.run("dumpsys cpuinfo | head -40")
 
         return Snapshot(
             capturedAt = System.currentTimeMillis(),
@@ -37,7 +39,10 @@ internal object DiagnosticEngine {
             wakeLocks = Parsers.parseWakeLocks(power, uidMap),
             alarms = Parsers.parseAlarms(alarm),
             kernelWakelocks = Parsers.parseKernelWakelocks(stats),
-            wakefulness = Parsers.first(power, """mWakefulness=(\w+)""")
+            wakefulness = Parsers.first(power, """mWakefulness=(\w+)"""),
+            sleep = Parsers.parseSleep(stats),
+            processes = Parsers.parseCpuInfo(cpu),
+            uptimeMs = SystemClock.elapsedRealtime()
         )
     }
 }

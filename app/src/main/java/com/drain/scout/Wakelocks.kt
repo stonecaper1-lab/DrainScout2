@@ -96,7 +96,7 @@ internal fun formatHeld(ms: Long): String =
 
 internal fun judgeWakeLock(w: WakeLockEntry, wakefulness: String?): Judgement {
     val screenOff = wakefulness == "Asleep" || wakefulness == "Dozing"
-    if (w.type != "PARTIAL") return judgeNonPartial(w.type, screenOff)
+    if (w.type != "PARTIAL") return judgeNonPartial(w.type, screenOff, w.heldMs)
 
     val rule = RULES.firstOrNull { it.matches(w.tag) } ?: GENERIC
     val limitMin = if (rule === GENERIC) (if (screenOff) 10L else 60L) else rule.limitMin
@@ -117,14 +117,29 @@ internal fun judgeWakeLock(w: WakeLockEntry, wakefulness: String?): Judgement {
     return Judgement(verdict, rule.kind, rule.description, reason)
 }
 
-private fun judgeNonPartial(type: String, screenOff: Boolean): Judgement = when (type) {
+private fun judgeNonPartial(type: String, screenOff: Boolean, heldMs: Long?): Judgement = when (type) {
     "PROXIMITY_SCREEN_OFF" -> Judgement(
         Verdict.USUAL,
         "Proximity lock",
         "Turns the screen off when the phone is near your face, as during a call.",
         "Normal during calls."
     )
-    "DOZE", "DRAW" -> Judgement(
+    "DOZE" -> if (screenOff && (heldMs ?: 0L) >= 5 * 60_000L) {
+        Judgement(
+            Verdict.UNUSUAL,
+            "Doze service lock",
+            "Held by the system's doze (ambient display) service. While it is held the CPU cannot sleep.",
+            "Held for ${formatHeld(heldMs ?: 0L)} while the screen is off. Short holds are normal; holding it for the whole screen-off time means the phone never sleeps."
+        )
+    } else {
+        Judgement(
+            Verdict.USUAL,
+            "Doze service lock",
+            "Held by the system's doze (ambient display) service. While it is held the CPU cannot sleep.",
+            "Normal for a short time after the screen turns off."
+        )
+    }
+    "DRAW" -> Judgement(
         Verdict.USUAL,
         "System display lock",
         "Held by the system to finish drawing or to run ambient display.",
@@ -147,7 +162,7 @@ private fun judgeNonPartial(type: String, screenOff: Boolean): Judgement = when 
     }
 }
 
-private fun kernelNote(name: String): String {
+internal fun kernelNote(name: String): String {
     val n = name.lowercase()
     return when {
         n == "powermanagerservice.wakelocks" ->

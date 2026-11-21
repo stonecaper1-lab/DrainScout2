@@ -10,6 +10,9 @@ internal data class WakeLockEntry(val owner: String, val tag: String, val type: 
 internal data class AlarmEntry(val owner: String, val wakeups: Int)
 internal data class KernelWakelock(val name: String, val duration: String, val count: Int, val durationMs: Long)
 internal data class Drain(val deltaPct: Int, val minutes: Long, val perHour: Float)
+/** Time since the last full charge, from batterystats. Uptime stops counting while the CPU is suspended. */
+internal data class SleepInfo(val totalRealMs: Long, val totalUpMs: Long, val offRealMs: Long, val offUpMs: Long)
+internal data class ProcessCpu(val name: String, val pid: Int, val percent: Float)
 
 internal data class Snapshot(
     val capturedAt: Long,
@@ -19,7 +22,10 @@ internal data class Snapshot(
     val wakeLocks: List<WakeLockEntry>,
     val alarms: List<AlarmEntry>,
     val kernelWakelocks: List<KernelWakelock>,
-    val wakefulness: String?
+    val wakefulness: String?,
+    val sleep: SleepInfo? = null,
+    val processes: List<ProcessCpu> = emptyList(),
+    val uptimeMs: Long = 0L
 )
 
 
@@ -111,6 +117,34 @@ internal object Parsers {
             found = true
         }
         return if (found) total else null
+    }
+
+    /**
+     * Example: "Time on battery screen off: 2d 7h 41m 14s 909ms (92.9%) realtime, 2d 7h 41m 13s 804ms (92.9%) uptime"
+     */
+    fun parseSleep(stats: String): SleepInfo? {
+        val rx = Regex(
+            """Time on battery( screen off)?:\s*(.+?)\s*\([\d.]+%\)\s*realtime,\s*(.+?)\s*\([\d.]+%\)\s*uptime"""
+        )
+        var total: Pair<Long, Long>? = null
+        var off: Pair<Long, Long>? = null
+        for (m in rx.findAll(stats)) {
+            val real = parseDurationMs(m.groupValues[2]) ?: continue
+            val up = parseDurationMs(m.groupValues[3]) ?: continue
+            if (m.groupValues[1].isEmpty()) total = real to up else off = real to up
+        }
+        val o = off ?: return null
+        return SleepInfo(total?.first ?: 0L, total?.second ?: 0L, o.first, o.second)
+    }
+
+    /** Example: "  12% 1954/system_server: 6.8% user + 5.5% kernel / faults: 4333 minor" */
+    fun parseCpuInfo(text: String): List<ProcessCpu> {
+        val rx = Regex("""^\s*([\d.]+)%\s+(\d+)/([^:\s]+):""", RegexOption.MULTILINE)
+        return rx.findAll(text).mapNotNull { m ->
+            val pct = m.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+            val pid = m.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+            ProcessCpu(m.groupValues[3], pid, pct)
+        }.take(20).toList()
     }
 
     /**

@@ -454,7 +454,17 @@ internal fun LinearLayout.buildAlarms(s: Snapshot) {
     }
     val max = s.alarms.maxOf { it.wakeups }.coerceAtLeast(1)
     val c = card(ctx)
-    for (a in s.alarms) c.addView(barRow(ctx, a.owner, "${a.wakeups}", a.wakeups.toFloat() / max, Pal.AMBER))
+    for (a in s.alarms) {
+        val value = if (s.uptimeMs > 3_600_000L) {
+            "${a.wakeups} · ${"%.1f".format(a.wakeups * 3_600_000f / s.uptimeMs)}/h"
+        } else {
+            "${a.wakeups}"
+        }
+        c.addView(barRow(ctx, a.owner, value, a.wakeups.toFloat() / max, Pal.AMBER))
+    }
+    val note = label(ctx, "Counts are since the phone started. The per-hour figure shows how often each one fires, which matters more than the raw total.", 12f, Pal.DIM)
+    note.setPadding(0, ctx.dp(8), 0, 0)
+    c.addView(note)
     addBlock(c)
 }
 
@@ -682,6 +692,19 @@ internal fun LinearLayout.buildHistory(
             }
         }
 
+        val win = older?.let { sleepBetween(e, it) }
+        if (win != null && win.offMs >= 5 * 60_000L) {
+            val pct = (win.awakeMs * 100 / win.offMs).toInt()
+            val t = label(
+                ctx,
+                "Screen off ${formatDuration(win.offMs / 60_000L)} · CPU awake $pct%",
+                12f,
+                if (pct >= 90) Pal.CORAL else if (pct >= 40) Pal.AMBER else Pal.MINT
+            )
+            t.setPadding(0, ctx.dp(6), 0, 0)
+            c.addView(t)
+        }
+
         val chips = LinearLayout(ctx)
         chips.orientation = LinearLayout.HORIZONTAL
         chips.setPadding(0, ctx.dp(10), 0, 0)
@@ -725,4 +748,149 @@ internal fun LinearLayout.buildHistory(
     }
 
     addBlock(pill(ctx, "Clear history") { onClear() })
+}
+
+
+// ------------------------------------------------------------------ culprit tab and sub-tabs
+
+private fun confColor(c: Confidence): Int = when (c) {
+    Confidence.HIGH -> Pal.CORAL
+    Confidence.MEDIUM -> Pal.AMBER
+    Confidence.LOW -> Pal.SKY
+}
+
+private fun sleepColor(s: SleepState): Int = when (s) {
+    SleepState.NEVER -> Pal.CORAL
+    SleepState.PARTLY -> Pal.AMBER
+    SleepState.SLEEPS -> Pal.MINT
+    SleepState.UNKNOWN -> Pal.SKY
+}
+
+internal fun LinearLayout.addSubTabs(names: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    val ctx = context
+    val row = LinearLayout(ctx)
+    row.orientation = LinearLayout.HORIZONTAL
+    names.forEachIndexed { i, name ->
+        val b = pill(ctx, name, primary = i == selected, sp = 12f, hPadDp = 4) { onSelect(i) }
+        val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+        lp.setMargins(ctx.dp(3), 0, ctx.dp(3), 0)
+        row.addView(b, lp)
+    }
+    addBlock(row, 10)
+}
+
+internal fun LinearLayout.buildCulprit(
+    s: Snapshot,
+    drain: Drain?,
+    sleep: SleepVerdict,
+    suspects: List<Suspect>,
+    monitor: MonitorUi
+) {
+    val ctx = context
+
+    section("Did the phone sleep?")
+    val sc = card(ctx)
+    val head = LinearLayout(ctx)
+    head.orientation = LinearLayout.HORIZONTAL
+    head.gravity = Gravity.CENTER_VERTICAL
+    val tone = sleepColor(sleep.state)
+    head.addView(dot(ctx, tone, 10))
+    val h = label(ctx, sleep.headline, 17f, tone, bold = true)
+    h.setPadding(ctx.dp(10), 0, 0, 0)
+    head.addView(h, LinearLayout.LayoutParams(0, WRAP, 1f))
+    sc.addView(head)
+    val d = label(ctx, sleep.detail, 13f)
+    d.setPadding(0, ctx.dp(8), 0, 0)
+    sc.addView(d)
+    if (sleep.basis.isNotEmpty()) {
+        val b = label(ctx, "Measured ${sleep.basis}.", 12f, Pal.DIM)
+        b.setPadding(0, ctx.dp(6), 0, 0)
+        sc.addView(b)
+    }
+    addBlock(sc)
+
+    section("Suspects")
+    if (suspects.isEmpty()) {
+        addBlock(
+            emptyCard(
+                ctx,
+                if (sleep.state == SleepState.SLEEPS) "Nothing stands out. The phone sleeps properly."
+                else "No suspect stands out yet. Capture again after the phone has been idle with the screen off for 30 minutes or more."
+            )
+        )
+    } else {
+        for (x in suspects) {
+            val c = card(ctx)
+            val row = LinearLayout(ctx)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            val t = label(ctx, x.title, 15f, Pal.INK, bold = true)
+            row.addView(t, LinearLayout.LayoutParams(0, WRAP, 1f))
+            row.addView(
+                chip(
+                    ctx,
+                    when (x.confidence) {
+                        Confidence.HIGH -> "High"
+                        Confidence.MEDIUM -> "Medium"
+                        Confidence.LOW -> "Low"
+                    },
+                    confColor(x.confidence)
+                )
+            )
+            c.addView(row)
+            val ev = label(ctx, x.evidence, 13f)
+            ev.setPadding(0, ctx.dp(8), 0, 0)
+            c.addView(ev)
+            val tryLabel = label(ctx, "What to try", 12f, Pal.MINT, bold = true)
+            tryLabel.setPadding(0, ctx.dp(10), 0, 0)
+            c.addView(tryLabel)
+            c.addView(label(ctx, x.action, 13f, Pal.DIM))
+            addBlock(c)
+        }
+    }
+
+    section("Run an idle test")
+    val test = card(ctx)
+    test.addView(
+        label(
+            ctx,
+            "1. Start the monitor.\n2. Lock the phone, unplugged, for an hour or more.\n3. Open DrainScout and look here again.\n\nThe monitor captures by itself, so the sleep check compares the time between captures.",
+            13f
+        )
+    )
+    val actions = LinearLayout(ctx)
+    actions.orientation = LinearLayout.HORIZONTAL
+    actions.setPadding(0, ctx.dp(10), 0, 0)
+    val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+    lp.setMargins(ctx.dp(3), 0, ctx.dp(3), 0)
+    actions.addView(pill(ctx, if (monitor.running) "Stop monitor" else "Start monitor", primary = !monitor.running, sp = 13f) { monitor.onToggle() }, lp)
+    test.addView(actions)
+    addBlock(test)
+
+    section("Everything else")
+    buildOverview(s, drain)
+}
+
+internal fun LinearLayout.buildProcesses(s: Snapshot) {
+    val ctx = context
+    section("Busiest processes")
+    val list = s.processes.filter { it.percent > 0f }
+    if (list.isEmpty()) {
+        addBlock(emptyCard(ctx, "No CPU usage was reported by this device."))
+        return
+    }
+    val max = list.maxOf { it.percent }.coerceAtLeast(1f)
+    val c = card(ctx)
+    for (p in list.take(15)) {
+        c.addView(barRow(ctx, p.name, "${"%.1f".format(p.percent)}%", p.percent / max, Pal.VIOLET))
+    }
+    val note = label(
+        ctx,
+        "CPU use over the last few minutes before the capture. With the screen on, this mostly reflects your own use. For a fairer reading, capture while the phone has been idle, or let the monitor capture it.",
+        12f,
+        Pal.DIM
+    )
+    note.setPadding(0, ctx.dp(8), 0, 0)
+    c.addView(note)
+    addBlock(c)
 }

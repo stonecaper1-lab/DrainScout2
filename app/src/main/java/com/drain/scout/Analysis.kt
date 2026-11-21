@@ -50,14 +50,37 @@ internal fun buildFindings(s: Snapshot, drain: Drain?): List<Finding> = buildLis
         }
     }
 
-    s.consumers.firstOrNull()?.let {
-        add(
-            Finding(
-                "${it.label} leads estimated usage",
-                "%.1f mAh since the last full charge, according to batterystats.".format(it.mah),
-                Severity.INFO
+    s.sleep?.let { sl ->
+        if (sl.offRealMs >= 30 * 60_000L && sl.offUpMs * 100 / sl.offRealMs.coerceAtLeast(1L) >= 90L) {
+            add(
+                Finding(
+                    "The phone never sleeps with the screen off",
+                    "Since the last charge the CPU was awake for ${sl.offUpMs * 100 / sl.offRealMs}% of the screen-off time. See the Culprit tab.",
+                    Severity.ALERT
+                )
             )
-        )
+        }
+    }
+
+    s.consumers.firstOrNull()?.let {
+        if (isComponentLabel(it.label)) {
+            add(
+                Finding(
+                    "${componentName(it.label)} is the top consumer",
+                    "%.1f mAh since the last full charge. This is a hardware or system component, not an app.".format(it.mah) +
+                        (if (it.label.equals("cpu", ignoreCase = true)) " Something keeps the processor running." else ""),
+                    Severity.INFO
+                )
+            )
+        } else {
+            add(
+                Finding(
+                    "${it.label} leads estimated usage",
+                    "%.1f mAh since the last full charge, according to batterystats.".format(it.mah),
+                    Severity.INFO
+                )
+            )
+        }
     }
 
     val judged = s.wakeLocks.map { it to judgeWakeLock(it, s.wakefulness) }
@@ -93,14 +116,19 @@ internal fun buildFindings(s: Snapshot, drain: Drain?): List<Finding> = buildLis
     }
 
     s.alarms.firstOrNull()?.let {
-        if (it.wakeups >= 100) {
-            add(
-                Finding(
-                    "${it.owner} wakes the device often",
-                    "${it.wakeups} alarm wakeups recorded.",
-                    Severity.WATCH
+        val perHour = if (s.uptimeMs > 3_600_000L) it.wakeups * 3_600_000f / s.uptimeMs else null
+        if (perHour != null) {
+            if (perHour >= 20f) {
+                add(
+                    Finding(
+                        "${it.owner} wakes the device often",
+                        "${it.wakeups} alarm wakeups since the phone started, about ${"%.0f".format(perHour)} an hour.",
+                        Severity.WATCH
+                    )
                 )
-            )
+            }
+        } else if (it.wakeups >= 500) {
+            add(Finding("${it.owner} wakes the device often", "${it.wakeups} alarm wakeups recorded.", Severity.WATCH))
         }
     }
 
@@ -120,7 +148,7 @@ internal fun buildFindings(s: Snapshot, drain: Drain?): List<Finding> = buildLis
     }
 }
 
-internal fun buildReport(s: Snapshot, drain: Drain?): String = buildString {
+internal fun buildReport(s: Snapshot, drain: Drain?, history: List<HistoryEntry> = emptyList()): String = buildString {
     appendLine("DrainScout report")
     appendLine("Captured: ${formatTime(s.capturedAt)}")
     s.battery?.let {
@@ -130,7 +158,28 @@ internal fun buildReport(s: Snapshot, drain: Drain?): String = buildString {
     if (drain != null) {
         appendLine("Since baseline: ${-drain.deltaPct}% over ${formatDuration(drain.minutes)} (${"%.1f".format(drain.perHour)} %/h)")
     }
+    if (s.uptimeMs > 0L) appendLine("Uptime since boot: ${formatDuration(s.uptimeMs / 60_000L)}")
     appendLine("Note: triage evidence, not final causation.")
+    appendLine()
+    val sleepVerdict = judgeSleep(s, history)
+    appendLine("== Sleep ==")
+    appendLine(sleepVerdict.headline)
+    appendLine(sleepVerdict.detail + (if (sleepVerdict.basis.isNotEmpty()) " (${sleepVerdict.basis})" else ""))
+    s.sleep?.let {
+        appendLine("Since last charge: screen off ${formatDuration(it.offRealMs / 60_000L)} realtime / ${formatDuration(it.offUpMs / 60_000L)} awake; total ${formatDuration(it.totalRealMs / 60_000L)} realtime / ${formatDuration(it.totalUpMs / 60_000L)} awake")
+    }
+    appendLine()
+    appendLine("== Suspects ==")
+    val suspects = findSuspects(s, sleepVerdict)
+    if (suspects.isEmpty()) appendLine("none") else suspects.forEach {
+        appendLine("[${it.confidence}] ${it.title}")
+        appendLine("    ${it.evidence}")
+    }
+    appendLine()
+    appendLine("== Busy processes (CPU, last few minutes) ==")
+    if (s.processes.isEmpty()) appendLine("none parsed") else s.processes.take(10).forEach {
+        appendLine("${"%.1f".format(it.percent)}%  ${it.name}")
+    }
     appendLine()
     appendLine("== Findings ==")
     buildFindings(s, drain).forEach { appendLine("- ${it.title}: ${it.detail}") }
@@ -161,9 +210,19 @@ internal fun buildReport(s: Snapshot, drain: Drain?): String = buildString {
     }
     appendLine()
     appendLine("== Alarm wakeups ==")
-    if (s.alarms.isEmpty()) appendLine("none parsed") else s.alarms.forEach { appendLine("${it.wakeups}  ${it.owner}") }
+    if (s.alarms.isEmpty()) appendLine("none parsed") else s.alarms.forEach {
+        val rate = if (s.uptimeMs > 3_600_000L) "  (${"%.1f".format(it.wakeups * 3_600_000f / s.uptimeMs)}/h)" else ""
+        appendLine("${it.wakeups}  ${it.owner}$rate")
+    }
     appendLine()
     appendLine("== Doze ==")
     appendLine(s.doze?.let { "deep=${it.deep} light=${it.light}" } ?: "none parsed")
 }
 
+
+private fun componentName(label: String): String = when (label.trim().lowercase()) {
+    "cpu" -> "CPU"
+    "wifi" -> "Wi-Fi"
+    "gnss" -> "GPS"
+    else -> label.replaceFirstChar { it.uppercase() }
+}

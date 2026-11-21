@@ -15,7 +15,10 @@ internal data class HistoryEntry(
     val wakes: List<HistWake>,
     val consumers: List<Consumer>,
     val alarms: List<AlarmEntry>,
-    val kernel: List<KernelWakelock>
+    val kernel: List<KernelWakelock>,
+    /** Screen-off realtime and uptime since the last charge, or -1 when the device did not report them. */
+    val offRealMs: Long = -1L,
+    val offUpMs: Long = -1L
 ) {
     companion object {
         /** Compact summary of a capture. Unusual wake locks are listed first and lists are capped. */
@@ -37,7 +40,9 @@ internal data class HistoryEntry(
                 wakes = wakes,
                 consumers = s.consumers.take(6),
                 alarms = s.alarms.take(6),
-                kernel = s.kernelWakelocks.take(5)
+                kernel = s.kernelWakelocks.take(5),
+                offRealMs = s.sleep?.offRealMs ?: -1L,
+                offUpMs = s.sleep?.offUpMs ?: -1L
             )
         }
     }
@@ -96,7 +101,9 @@ internal object HistoryCodec {
         join(e.wakes.map { listOf(it.owner, it.tag, it.heldMs.toString(), if (it.unusual) "1" else "0") }),
         join(e.consumers.map { listOf(it.label, it.mah.toString()) }),
         join(e.alarms.map { listOf(it.owner, it.wakeups.toString()) }),
-        join(e.kernel.map { listOf(it.name, it.duration, it.count.toString(), it.durationMs.toString()) })
+        join(e.kernel.map { listOf(it.name, it.duration, it.count.toString(), it.durationMs.toString()) }),
+        e.offRealMs.toString(),
+        e.offUpMs.toString()
     ).joinToString("\t")
 
     fun decode(line: String): HistoryEntry? = try {
@@ -115,7 +122,9 @@ internal object HistoryCodec {
                 wakes = items(f[7]).map { HistWake(it[0], it[1], it[2].toLong(), it[3] == "1") },
                 consumers = items(f[8]).map { Consumer(it[0], it[1].toFloat()) },
                 alarms = items(f[9]).map { AlarmEntry(it[0], it[1].toInt()) },
-                kernel = items(f[10]).map { KernelWakelock(it[0], it[1], it[2].toInt(), it[3].toLong()) }
+                kernel = items(f[10]).map { KernelWakelock(it[0], it[1], it[2].toInt(), it[3].toLong()) },
+                offRealMs = f.getOrNull(11)?.toLongOrNull() ?: -1L,
+                offUpMs = f.getOrNull(12)?.toLongOrNull() ?: -1L
             )
         }
     } catch (_: Exception) {
